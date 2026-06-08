@@ -41,21 +41,35 @@ jobs:
           #define DATABASE_SECRET "${{ secrets.FB_DATABASE_SECRET }}"
           EOF
 
-      - name: Compile
+      - name: Compile (Minimal SPIFFS = 1.9MB app, keeps OTA)
         run: |
           arduino-cli compile \
-            --fqbn esp32:esp32:esp32 \
+            --fqbn esp32:esp32:esp32:PartitionScheme=min_spiffs \
             --output-dir build \
             firmware/roboface_oled
 
-      - name: Upload .bin as a build artifact (download from the Actions run)
+      - name: Make full web-flashable image (bootloader + partitions + app)
+        run: |
+          pip install --quiet esptool
+          BOOT_APP0=$(ls ~/.arduino15/packages/esp32/hardware/esp32/*/tools/partitions/boot_app0.bin | head -1)
+          esptool.py --chip esp32 merge_bin --flash_size 4MB -o build/roboface_full.bin \
+            0x1000  build/roboface_oled.ino.bootloader.bin \
+            0x8000  build/roboface_oled.ino.partitions.bin \
+            0xe000  "$BOOT_APP0" \
+            0x10000 build/roboface_oled.ino.bin
+
+      - name: Upload .bin files as build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: roboface-firmware
-          path: build/roboface_oled.ino.bin
+          path: |
+            build/roboface_oled.ino.bin
+            build/roboface_full.bin
 
-      - name: Attach .bin to the Release (only on tag pushes)
+      - name: Attach .bin files to the Release (only on tag pushes)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: build/roboface_oled.ino.bin
+          files: |
+            build/roboface_oled.ino.bin
+            build/roboface_full.bin
