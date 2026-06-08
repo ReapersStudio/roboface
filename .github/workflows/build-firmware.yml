@@ -1,0 +1,61 @@
+name: Build firmware
+
+# Compiles the ESP32 sketch in the cloud (no Arduino IDE needed) and attaches
+# the .bin to the GitHub Release. Pair with the device's OTA: after this runs,
+# set /roboface/firmware/version + url in Firebase and the device self-updates.
+
+on:
+  push:
+    tags:
+      - "v*"          # e.g. push tag v1.2.0 -> builds + attaches the .bin
+  workflow_dispatch:   # or run it manually from the Actions tab
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Arduino CLI
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Install ESP32 core + libraries
+        run: |
+          arduino-cli config init --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32
+          arduino-cli lib install \
+            "Adafruit GFX Library" \
+            "Adafruit SSD1306" \
+            "Firebase Arduino Client Library for ESP8266 and ESP32"
+
+      - name: Create secrets header from repo Secrets
+        run: |
+          cat > firmware/roboface_oled/arduino_secrets.h <<EOF
+          #pragma once
+          #define WIFI_SSID "${{ secrets.WIFI_SSID }}"
+          #define WIFI_PASSWORD "${{ secrets.WIFI_PASSWORD }}"
+          #define API_KEY "${{ secrets.FB_API_KEY }}"
+          #define DATABASE_URL "${{ secrets.FB_DATABASE_URL }}"
+          #define DATABASE_SECRET "${{ secrets.FB_DATABASE_SECRET }}"
+          EOF
+
+      - name: Compile
+        run: |
+          arduino-cli compile \
+            --fqbn esp32:esp32:esp32 \
+            --output-dir build \
+            firmware/roboface_oled
+
+      - name: Upload .bin as a build artifact (download from the Actions run)
+        uses: actions/upload-artifact@v4
+        with:
+          name: roboface-firmware
+          path: build/roboface_oled.ino.bin
+
+      - name: Attach .bin to the Release (only on tag pushes)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/roboface_oled.ino.bin

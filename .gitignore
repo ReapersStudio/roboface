@@ -1,0 +1,12 @@
+node_modules/
+dist/
+build/
+logs/
+*.log
+.DS_Store
+
+# Local env / secrets — never commit these
+.env
+.env.local
+.env.*.local
+firmware/roboface_oled/arduino_secrets.h
