@@ -60,7 +60,7 @@
 // Firmware version of THIS build. The device self-updates over the air when
 // /roboface/firmware/version in Firebase differs from this. Bump it every
 // time you publish a new .bin to your GitHub release.
-#define FW_VERSION "1.2.0"
+#define FW_VERSION "1.3.0"
 
 // OLED
 #define SCREEN_WIDTH 128
@@ -87,6 +87,7 @@ bool firebaseReady = false;
 // OTA check timing
 unsigned long lastOtaCheck = 0;
 const unsigned long OTA_INTERVAL = 5UL * 60UL * 1000UL; // every 5 minutes
+bool forceOtaCheck = false; // set when the app presses "Update now"
 
 // ---- Design space (matches RobotFaceCanvas.jsx) ----
 static const float DESIGN_W = 800.0f;
@@ -623,6 +624,10 @@ void applyField(const String &k, const String &v)
     g.rightAngle = v.toFloat();
   else if (k == "blink")
     g.blink = (v == "true" || v == "1");
+  else if (k == "fwUpdateNow")
+  {
+    if (v == "true" || v == "1") forceOtaCheck = true; // app pressed "Update now"
+  }
   else if (k == "widgetTime")
     g.wTime = (v == "true" || v == "1");
   else if (k == "widgetDate")
@@ -697,45 +702,107 @@ void otaMessage(const char *l1, const char *l2)
   display.display();
 }
 
-// Reads /roboface/firmware/{version,url}. If version != FW_VERSION, downloads
-// the .bin over HTTPS and flashes this chip, then reboots.
+// Report this device's firmware state to Firebase so the app can show it.
+void reportFw(const char *status, int progress)
+{
+  String base = String("/") + ROOT_PATH + "/devices/" + DEVICE_ID;
+  Firebase.RTDB.setString(&fbdo, (base + "/fwVersion").c_str(), FW_VERSION);
+  Firebase.RTDB.setString(&fbdo, (base + "/fwStatus").c_str(), status);
+  Firebase.RTDB.setInt(&fbdo, (base + "/fwProgress").c_str(), progress);
+}
+
+// Consumer-style "installing" screen with a progress bar (TV / smartwatch feel).
+void otaProgressBar(const char *title, const char *sub, int pct)
+{
+  if (pct < 0) pct = 0;
+  if (pct > 100) pct = 100;
+  display.clearDisplay();
+  display.setTextColor(SSD1306_WHITE);
+  display.setTextSize(1);
+  display.setCursor(0, 4);
+  display.println(title);
+  if (sub && sub[0])
+  {
+    display.setCursor(0, 16);
+    display.println(sub);
+  }
+  const int x = 6, y = 36, w = SCREEN_WIDTH - 12, h = 12;
+  display.drawRoundRect(x, y, w, h, 3, SSD1306_WHITE);
+  int fill = (w - 4) * pct / 100;
+  if (fill > 0) display.fillRoundRect(x + 2, y + 2, fill, h - 4, 1, SSD1306_WHITE);
+  display.setCursor(x, y + h + 5);
+  display.print(pct);
+  display.println("%");
+  display.display();
+}
+
+// Checks /roboface/firmware/{version,url}; if newer than FW_VERSION, downloads
+// over HTTPS with a live progress bar, flashes, and reboots. Reports status to
+// the app throughout (checking / up-to-date / updating / failed).
 void checkForOTA()
 {
+  reportFw("checking", 0);
   String base = String("/") + ROOT_PATH + "/firmware";
 
   if (!Firebase.RTDB.getString(&fbdo, (base + "/version").c_str()))
-    return; // node missing or read failed - nothing to do
+  {
+    reportFw("idle", 0);
+    return;
+  }
   String remoteVer = fbdo.stringData();
   remoteVer.replace("\"", "");
   remoteVer.trim();
   if (remoteVer.length() == 0 || remoteVer == FW_VERSION)
-    return; // already up to date
+  {
+    reportFw("up-to-date", 0); // app shows "Up to date"
+    return;
+  }
 
   if (!Firebase.RTDB.getString(&fbdo, (base + "/url").c_str()))
+  {
+    reportFw("up-to-date", 0);
     return;
+  }
   String url = fbdo.stringData();
   url.replace("\"", "");
   url.trim();
   if (!url.startsWith("http"))
+  {
+    reportFw("up-to-date", 0);
     return;
+  }
 
   Serial.printf("OTA: %s -> %s\n  %s\n", FW_VERSION, remoteVer.c_str(), url.c_str());
-  otaMessage("Updating firmware", remoteVer.c_str());
+  reportFw("updating", 0);
+  otaProgressBar("Update available", remoteVer.c_str(), 0);
+  delay(1200); // let the user see the "update available" notice
 
   WiFiClientSecure client;
   client.setInsecure(); // skip cert validation (GitHub HTTPS)
   httpUpdate.rebootOnUpdate(true);
   httpUpdate.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS); // GitHub 302s to a CDN
 
+  // Live progress bar on the OLED (throttled to whole-percent changes).
+  httpUpdate.onProgress([](int cur, int total) {
+    static int lastPct = -1;
+    int pct = (total > 0) ? (int)((cur * 100L) / total) : 0;
+    if (pct != lastPct)
+    {
+      lastPct = pct;
+      otaProgressBar("Installing update", nullptr, pct);
+    }
+  });
+
   t_httpUpdate_return ret = httpUpdate.update(client, url);
   if (ret == HTTP_UPDATE_FAILED)
   {
     Serial.printf("OTA failed (%d): %s\n",
                   httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
-    otaMessage("Update failed", httpUpdate.getLastErrorString().c_str());
-    delay(1500);
+    reportFw("failed", 0);
+    otaProgressBar("Update failed", "will retry", 0);
+    delay(2000);
   }
-  // HTTP_UPDATE_OK reboots automatically (rebootOnUpdate=true)
+  // HTTP_UPDATE_OK reboots automatically; on next boot it reports the new version.
 }
 
 // ---------------- setup / loop ----------------
@@ -826,11 +893,23 @@ void loop()
 
   // Periodic OTA check (and once shortly after boot). update()/reboot is
   // blocking, but only runs when a newer version is actually published.
-  if (firebaseReady && Firebase.ready() &&
-      (lastOtaCheck == 0 || millis() - lastOtaCheck > OTA_INTERVAL))
+  if (firebaseReady && Firebase.ready())
   {
-    lastOtaCheck = millis();
-    checkForOTA();
+    // "Update now" from the app -> check immediately
+    if (forceOtaCheck)
+    {
+      forceOtaCheck = false;
+      String f = String("/") + ROOT_PATH + "/devices/" + DEVICE_ID + "/fwUpdateNow";
+      Firebase.RTDB.setBool(&fbdo, f.c_str(), false); // clear the trigger
+      lastOtaCheck = millis();
+      checkForOTA();
+    }
+    // Background auto-check (and once shortly after boot)
+    else if (lastOtaCheck == 0 || millis() - lastOtaCheck > OTA_INTERVAL)
+    {
+      lastOtaCheck = millis();
+      checkForOTA();
+    }
   }
 
   delay(16); // ~60 fps cap

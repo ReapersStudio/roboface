@@ -489,6 +489,19 @@ export function useRoboFaceSync() {
     [state.control.currentDeviceId, state.control.currentReactionId, state.reactions, selectReaction],
   );
 
+  const requestDeviceUpdate = useCallback(
+    (deviceId = state.control.currentDeviceId) => {
+      if (!deviceId) {
+        return;
+      }
+      realtimeStore.updateValue(`devices/${deviceId}`, {
+        fwUpdateNow: true,
+        updatedAt: nowStamp(),
+      });
+    },
+    [state.control.currentDeviceId],
+  );
+
   const updateSettings = useCallback((patch) => {
     realtimeStore.updateValue("settings", patch);
   }, []);
@@ -500,6 +513,7 @@ export function useRoboFaceSync() {
   return {
     ...state,
     selectionItems,
+    firmware: rawState?.firmware || null,
     firebaseConnected,
     realtimeMode: realtimeStore.mode,
     rootPath: realtimeStore.rootPath,
@@ -524,6 +538,7 @@ export function useRoboFaceSync() {
       updatePreview,
       updateDisplay,
       setSelectionItems,
+      requestDeviceUpdate,
       updateSettings,
       updateFirebaseSettings,
     },
