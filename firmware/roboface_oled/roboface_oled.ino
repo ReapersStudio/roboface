@@ -61,7 +61,7 @@
 // Firmware version of THIS build. The device self-updates over the air when
 // /roboface/firmware/version in Firebase differs from this. Bump it every
 // time you publish a new .bin to your GitHub release.
-#define FW_VERSION "1.4.0"
+#define FW_VERSION "1.4.1"
 
 // OLED
 #define SCREEN_WIDTH 128
@@ -88,7 +88,8 @@ bool firebaseReady = false;
 // OTA check timing
 unsigned long lastOtaCheck = 0;
 const unsigned long OTA_INTERVAL = 5UL * 60UL * 1000UL; // every 5 minutes
-bool forceOtaCheck = false; // set when the app presses "Update now"
+bool forceOtaCheck = false;      // set when the app presses "Update now"
+bool needPlaylistFetch = true;   // fetch playlist via getString (stream escapes it)
 
 // ---- Design space (matches RobotFaceCanvas.jsx) ----
 static const float DESIGN_W = 800.0f;
@@ -871,7 +872,8 @@ void streamCallback(FirebaseStream data)
   String path = data.dataPath();
   if (path == "/")
   {
-    // whole node (or a multi-field update) arrived as JSON
+    // whole node arrived as JSON. The iterator escapes nested-JSON strings, so
+    // we don't trust playlistJson here — we re-fetch it cleanly with getString.
     FirebaseJson *json = data.to<FirebaseJson *>();
     size_t len = json->iteratorBegin();
     String key, val;
@@ -879,17 +881,21 @@ void streamCallback(FirebaseStream data)
     for (size_t i = 0; i < len; i++)
     {
       json->iteratorGet(i, type, key, val);
-      applyField(key, val);
+      if (key == "playlistJson")
+        needPlaylistFetch = true;
+      else
+        applyField(key, val);
     }
     json->iteratorEnd();
   }
   else
   {
-    // single child changed, e.g. "/leftX"
-    applyField(path.substring(1), data.to<String>());
+    String key = path.substring(1);
+    if (key == "playlistJson")
+      needPlaylistFetch = true;
+    else
+      applyField(key, data.to<String>());
   }
-  Serial.printf("[stream] reaction=%s code=%d feature=%s\n",
-                g.reaction.c_str(), g.code, g.feature.c_str());
 }
 
 void streamTimeoutCallback(bool timeout)
@@ -1109,6 +1115,20 @@ void loop()
   // blocking, but only runs when a newer version is actually published.
   if (firebaseReady && Firebase.ready())
   {
+    // Fetch the playlist cleanly (the stream's copy is escaped JSON)
+    if (needPlaylistFetch)
+    {
+      needPlaylistFetch = false;
+      String base = String("/") + ROOT_PATH + "/devices/" + DEVICE_ID;
+      if (Firebase.RTDB.getString(&fbdo, (base + "/playlistJson").c_str()))
+        parsePlaylist(fbdo.stringData());
+      if (Firebase.RTDB.getInt(&fbdo, (base + "/cycleMs").c_str()))
+      {
+        int ms = fbdo.intData();
+        if (ms >= 500) cycleMs = (unsigned long)ms;
+      }
+    }
+
     // "Update now" from the app -> check immediately
     if (forceOtaCheck)
     {
