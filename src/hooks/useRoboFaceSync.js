@@ -145,26 +145,36 @@ export function useRoboFaceSync() {
     );
   }, [selectionItems, state.reactions]);
 
+  // If the device is online and reporting its position (curSlide), the preview
+  // FOLLOWS the device so the app + OLED stay in sync. Otherwise it free-runs.
+  const deviceCurSlide = Number(state.activeDevice?.curSlide);
+  const followDevice = Number.isFinite(deviceCurSlide) && previewSlides.length > 0;
+
   const [previewIndex, setPreviewIndex] = useState(0);
   const previewInterval = Number(state.settings.autoCycleInterval || 4000);
   useEffect(() => {
-    if (previewSlides.length <= 1) {
-      return undefined;
+    if (followDevice || previewSlides.length <= 1) {
+      return undefined; // device drives it, or only one slide
     }
     const id = window.setInterval(
       () => setPreviewIndex((i) => (i + 1) % previewSlides.length),
       previewInterval,
     );
     return () => window.clearInterval(id);
-  }, [previewSlides.length, previewInterval]);
+  }, [followDevice, previewSlides.length, previewInterval]);
 
-  const safePreviewIndex = previewSlides.length ? previewIndex % previewSlides.length : 0;
+  const safePreviewIndex = !previewSlides.length
+    ? 0
+    : followDevice
+      ? ((deviceCurSlide % previewSlides.length) + previewSlides.length) % previewSlides.length
+      : previewIndex % previewSlides.length;
   const previewItem = previewSlides[safePreviewIndex] || null;
   const preview = {
     index: safePreviewIndex,
     count: previewSlides.length,
     item: previewItem,
     reaction: previewItem && previewItem.t === "r" ? state.reactions[previewItem.id] : null,
+    synced: followDevice,
   };
 
   // Denormalize the "In use" list into a compact playlist and push it to the

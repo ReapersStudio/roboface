@@ -51,9 +51,11 @@ export function Welcome({ state, onNavigate }) {
         <div className="canvas-header">
           <div>
             <h2 className="section-title">Flow preview</h2>
-            <p className="microcopy">Now playing: {playingLabel}</p>
+            <p className="microcopy">
+              {preview.synced ? "In sync with device · " : ""}Now playing: {playingLabel}
+            </p>
           </div>
-          <div className="live-chip">PLAYING</div>
+          <div className="live-chip">{preview.synced ? "SYNCED" : "PLAYING"}</div>
         </div>
         <SlideshowPreview slide={preview.item} reactions={state.reactions} settings={state.settings} />
       </Panel>

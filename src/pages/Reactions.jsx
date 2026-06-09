@@ -73,12 +73,14 @@ export function Reactions({ state }) {
             <div>
               <h2 className="section-title">{playingLabel}</h2>
               <p className="microcopy">
-                {items.length > 1
-                  ? `Playing your sequence · ${items.length} slides`
-                  : "Add more items to see the flow"}
+                {preview.synced
+                  ? "In sync with your device"
+                  : items.length > 1
+                    ? `Playing your sequence · ${items.length} slides`
+                    : "Add more items to see the flow"}
               </p>
             </div>
-            <div className="live-chip">PLAYING</div>
+            <div className="live-chip">{preview.synced ? "SYNCED" : "PLAYING"}</div>
           </div>
           <SlideshowPreview
             slide={preview.item}

@@ -61,7 +61,7 @@
 // Firmware version of THIS build. The device self-updates over the air when
 // /roboface/firmware/version in Firebase differs from this. Bump it every
 // time you publish a new .bin to your GitHub release.
-#define FW_VERSION "1.4.3"
+#define FW_VERSION "1.4.4"
 
 // OLED
 #define SCREEN_WIDTH 128
@@ -1142,7 +1142,10 @@ void loop()
       needPlaylistFetch = false;
       String base = String("/") + ROOT_PATH + "/devices/" + DEVICE_ID;
       if (Firebase.RTDB.getString(&fbdo, (base + "/playlistJson").c_str()))
+      {
         parsePlaylist(fbdo.stringData());
+        reportCurSlide(); // publish slide 0 right away so the app preview syncs
+      }
       if (Firebase.RTDB.getInt(&fbdo, (base + "/cycleMs").c_str()))
       {
         int ms = fbdo.intData();
