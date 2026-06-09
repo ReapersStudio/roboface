@@ -61,7 +61,7 @@
 // Firmware version of THIS build. The device self-updates over the air when
 // /roboface/firmware/version in Firebase differs from this. Bump it every
 // time you publish a new .bin to your GitHub release.
-#define FW_VERSION "1.4.1"
+#define FW_VERSION "1.4.2"
 
 // OLED
 #define SCREEN_WIDTH 128
@@ -90,6 +90,7 @@ unsigned long lastOtaCheck = 0;
 const unsigned long OTA_INTERVAL = 5UL * 60UL * 1000UL; // every 5 minutes
 bool forceOtaCheck = false;      // set when the app presses "Update now"
 bool needPlaylistFetch = true;   // fetch playlist via getString (stream escapes it)
+unsigned long lastBeat = 0;      // heartbeat / diagnostics timer
 
 // ---- Design space (matches RobotFaceCanvas.jsx) ----
 static const float DESIGN_W = 800.0f;
@@ -1115,6 +1116,17 @@ void loop()
   // blocking, but only runs when a newer version is actually published.
   if (firebaseReady && Firebase.ready())
   {
+    // Heartbeat + diagnostics (so the app/DB can see the device is alive,
+    // how many slides it parsed, and that it's online).
+    if (millis() - lastBeat > 5000)
+    {
+      lastBeat = millis();
+      String b = String("/") + ROOT_PATH + "/devices/" + DEVICE_ID;
+      Firebase.RTDB.setInt(&fbdo, (b + "/slideCount").c_str(), slideCount);
+      Firebase.RTDB.setInt(&fbdo, (b + "/uptime").c_str(), (int)(millis() / 1000));
+      Firebase.RTDB.setBool(&fbdo, (b + "/online").c_str(), true);
+    }
+
     // Fetch the playlist cleanly (the stream's copy is escaped JSON)
     if (needPlaylistFetch)
     {
