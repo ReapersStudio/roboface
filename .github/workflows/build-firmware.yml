@@ -10,6 +10,9 @@ on:
       - "v*"          # e.g. push tag v1.2.0 -> builds + attaches the .bin
   workflow_dispatch:   # or run it manually from the Actions tab
 
+permissions:
+  contents: write       # allow the workflow to create/attach Releases
+
 jobs:
   build:
     runs-on: ubuntu-latest
