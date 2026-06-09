@@ -61,7 +61,7 @@
 // Firmware version of THIS build. The device self-updates over the air when
 // /roboface/firmware/version in Firebase differs from this. Bump it every
 // time you publish a new .bin to your GitHub release.
-#define FW_VERSION "1.4.5"
+#define FW_VERSION "1.4.6"
 
 // OLED
 #define SCREEN_WIDTH 128
@@ -886,9 +886,14 @@ void streamCallback(FirebaseStream data)
     {
       json->iteratorGet(i, type, key, val);
       if (key == "playlistJson")
+      {
         needPlaylistFetch = true;
-      else
-        applyField(key, val);
+        continue;
+      }
+      // the iterator returns string values wrapped in quotes — strip them
+      if (val.length() >= 2 && val.startsWith("\"") && val.endsWith("\""))
+        val = val.substring(1, val.length() - 1);
+      applyField(key, val);
     }
     json->iteratorEnd();
   }
