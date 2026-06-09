@@ -43,6 +43,9 @@
 #include <HTTPUpdate.h>       // self-flash from a .bin URL
 #include <time.h>             // NTP clock for time/date widgets
 #include <ArduinoJson.h>      // parse the playlist the app sends
+extern "C" {
+#include "qrcode.h"           // QR code on the OLED for WiFi setup
+}
 
 // ===================== USER CONFIG =====================
 // Secrets (WiFi + Firebase) live in arduino_secrets.h, which is git-ignored so
@@ -61,7 +64,7 @@
 // Firmware version of THIS build. The device self-updates over the air when
 // /roboface/firmware/version in Firebase differs from this. Bump it every
 // time you publish a new .bin to your GitHub release.
-#define FW_VERSION "1.4.7"
+#define FW_VERSION "1.5.0"
 
 // OLED
 #define SCREEN_WIDTH 128
@@ -1054,7 +1057,40 @@ void checkForOTA()
 }
 
 // ---------------- setup / loop ----------------
-// Connect using saved WiFi; if none/unreachable, open a "RoboFace-Setup" hotspot
+#define SETUP_AP_NAME "Kiibo" // short so the WiFi QR fits the small OLED
+
+// Setup screen: a scannable QR on the right (joins the "Kiibo" hotspot) + text.
+// Customer scans with their phone camera -> joins -> the setup page opens, where
+// they pick THEIR home WiFi. No seller credentials anywhere.
+void drawWifiSetupScreen()
+{
+  display.clearDisplay();
+
+  QRCode qrcode;
+  uint8_t qrData[qrcode_getBufferSize(2)];
+  qrcode_initText(&qrcode, qrData, 2, ECC_LOW, "WIFI:S:" SETUP_AP_NAME ";T:nopass;;");
+
+  const int scale = 2;
+  int qpx = qrcode.size * scale;
+  int ox = SCREEN_WIDTH - qpx - 4;
+  int oy = (SCREEN_HEIGHT - qpx) / 2;
+  display.fillRect(ox - 4, oy - 4, qpx + 8, qpx + 8, SSD1306_WHITE); // light quiet zone
+  for (uint8_t y = 0; y < qrcode.size; y++)
+    for (uint8_t x = 0; x < qrcode.size; x++)
+      if (qrcode_getModule(&qrcode, x, y))
+        display.fillRect(ox + x * scale, oy + y * scale, scale, scale, SSD1306_BLACK);
+
+  display.setTextColor(SSD1306_WHITE);
+  display.setTextSize(1);
+  display.setCursor(0, 4);  display.println("Set up");
+  display.setCursor(0, 14); display.println("WiFi:");
+  display.setCursor(0, 30); display.println("Scan QR");
+  display.setCursor(0, 40); display.println("w/ camera");
+  display.setCursor(0, 54); display.println("net:" SETUP_AP_NAME);
+  display.display();
+}
+
+// Connect using saved WiFi; if none/unreachable, open the "Kiibo" setup hotspot
 // so the customer enters their own WiFi from a phone — no hardcoded credentials.
 void connectWiFi()
 {
@@ -1062,24 +1098,10 @@ void connectWiFi()
 
   WiFiManager wm;
   wm.setConfigPortalTimeout(180); // 3 min in setup mode, then reboot & retry
-
-  // When the setup portal opens, show instructions on the OLED
-  wm.setAPCallback([](WiFiManager *mgr) {
-    display.clearDisplay();
-    display.setTextColor(SSD1306_WHITE);
-    display.setTextSize(1);
-    display.setCursor(0, 0);
-    display.println("Wi-Fi setup");
-    display.println("");
-    display.println("1) Phone WiFi:");
-    display.println("   RoboFace-Setup");
-    display.println("2) Open page:");
-    display.println("   192.168.4.1");
-    display.display();
-  });
+  wm.setAPCallback([](WiFiManager *mgr) { drawWifiSetupScreen(); });
 
   // Tries the saved network first; only opens the portal if it can't connect.
-  bool ok = wm.autoConnect("RoboFace-Setup");
+  bool ok = wm.autoConnect(SETUP_AP_NAME);
   if (!ok)
   {
     Serial.println("WiFi setup timed out - restarting");
