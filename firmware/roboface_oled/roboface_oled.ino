@@ -61,7 +61,7 @@
 // Firmware version of THIS build. The device self-updates over the air when
 // /roboface/firmware/version in Firebase differs from this. Bump it every
 // time you publish a new .bin to your GitHub release.
-#define FW_VERSION "1.4.6"
+#define FW_VERSION "1.4.7"
 
 // OLED
 #define SCREEN_WIDTH 128
@@ -721,11 +721,30 @@ void drawFrame()
     return;
   }
 
-  if (slideCount > 1 && millis() - slideStart > cycleMs)
+  if (slideCount > 1)
   {
-    slideIdx = (slideIdx + 1) % slideCount;
-    slideStart = millis();
-    reportCurSlide();
+    int nextIdx = slideIdx;
+    time_t epoch = time(nullptr);
+    unsigned long cycleSec = cycleMs / 1000;
+    if (cycleSec < 1) cycleSec = 1;
+
+    if (epoch > 100000)
+    {
+      // wall-clock index — identical formula in the app, so they stay in sync
+      nextIdx = (int)((epoch / cycleSec) % slideCount);
+    }
+    else if (millis() - slideStart > cycleMs)
+    {
+      // NTP not ready yet — fall back to a local timer
+      nextIdx = (slideIdx + 1) % slideCount;
+      slideStart = millis();
+    }
+
+    if (nextIdx != slideIdx)
+    {
+      slideIdx = nextIdx;
+      reportCurSlide();
+    }
   }
 
   Slide &s = slides[slideIdx];

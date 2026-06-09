@@ -160,36 +160,26 @@ export function useRoboFaceSync() {
     );
   }, [selectionItems, state.reactions]);
 
-  // If the device is online and reporting its position (curSlide), the preview
-  // FOLLOWS the device so the app + OLED stay in sync. Otherwise it free-runs.
-  const deviceCurSlide = Number(state.activeDevice?.curSlide);
-  const followDevice = Number.isFinite(deviceCurSlide) && previewSlides.length > 0;
-
-  const [previewIndex, setPreviewIndex] = useState(0);
-  const previewInterval = Number(state.settings.autoCycleInterval || 4000);
+  // Both the app and the device compute the current slide from the SAME
+  // wall-clock formula (epochSeconds / cycleSeconds) % count — so they stay in
+  // sync with no messaging or drift. A 1s tick re-renders to advance it.
+  const cycleSec = Math.max(1, Math.floor(Number(state.settings.autoCycleInterval || 4000) / 1000));
+  const [, setTick] = useState(0);
   useEffect(() => {
-    if (followDevice || previewSlides.length <= 1) {
-      return undefined; // device drives it, or only one slide
-    }
-    const id = window.setInterval(
-      () => setPreviewIndex((i) => (i + 1) % previewSlides.length),
-      previewInterval,
-    );
+    const id = window.setInterval(() => setTick((n) => n + 1), 1000);
     return () => window.clearInterval(id);
-  }, [followDevice, previewSlides.length, previewInterval]);
+  }, []);
 
-  const safePreviewIndex = !previewSlides.length
-    ? 0
-    : followDevice
-      ? ((deviceCurSlide % previewSlides.length) + previewSlides.length) % previewSlides.length
-      : previewIndex % previewSlides.length;
+  const safePreviewIndex = previewSlides.length
+    ? Math.floor(Date.now() / 1000 / cycleSec) % previewSlides.length
+    : 0;
   const previewItem = previewSlides[safePreviewIndex] || null;
   const preview = {
     index: safePreviewIndex,
     count: previewSlides.length,
     item: previewItem,
     reaction: previewItem && previewItem.t === "r" ? state.reactions[previewItem.id] : null,
-    synced: followDevice,
+    synced: Number.isFinite(Number(state.activeDevice?.curSlide)),
   };
 
   // Denormalize the "In use" list into a compact playlist and push it to the
