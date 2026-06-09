@@ -79,8 +79,11 @@ export function AppShell({
       <main className="app-main">
         <header className="topbar">
           <div>
-            <p className="topbar-kicker">Current state</p>
-            <h1>{currentReaction.code} / {currentReaction.name}</h1>
+            <p className="topbar-kicker">Now playing</p>
+            <h1>
+              {currentReaction.code != null ? `${currentReaction.code} / ` : ""}
+              {currentReaction.name}
+            </h1>
           </div>
           <div className="topbar-grid">
           <div className="telemetry-pill">

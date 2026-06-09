@@ -10,7 +10,6 @@ import {
   Send,
   X,
 } from "lucide-react";
-import { useState } from "react";
 import { Panel, TextField, Toggle } from "../components/Controls.jsx";
 import { RobotFaceCanvas } from "../components/RobotFaceCanvas.jsx";
 import { SlideshowPreview } from "../components/SlideshowPreview.jsx";
@@ -26,7 +25,12 @@ const WIDGET_BY_KEY = Object.fromEntries(WIDGETS.map((w) => [w.key, w]));
 export function Reactions({ state }) {
   const { actions } = state;
   const display = state.settings.display;
-  const [nowPlaying, setNowPlaying] = useState(null);
+  const preview = state.preview || {};
+  const playingLabel = preview.reaction
+    ? preview.reaction.name
+    : preview.item?.t === "w"
+      ? `${WIDGET_BY_KEY[preview.item.key]?.label || "Widget"} widget`
+      : "Flow preview";
   // keep only items that still resolve (drops stale reaction ids / unknown widgets)
   const items = (state.selectionItems || []).filter((it) =>
     it.t === "r" ? Boolean(state.reactions[it.id]) : Boolean(WIDGET_BY_KEY[it.key]),
@@ -35,7 +39,7 @@ export function Reactions({ state }) {
   const reactionIdsInUse = items.filter((it) => it.t === "r").map((it) => it.id);
   const widgetKeysInUse = items.filter((it) => it.t === "w").map((it) => it.key);
   const weatherInUse = widgetKeysInUse.includes("weather");
-  const curSlide = Number(state.activeDevice?.curSlide ?? -1); // device's current slide
+  const curSlide = items.length > 1 ? (preview.index ?? -1) : -1; // currently-playing slide
 
   const commit = (next) => actions.setSelectionItems(next);
 
@@ -67,7 +71,7 @@ export function Reactions({ state }) {
         <Panel className="live-box">
           <div className="canvas-header">
             <div>
-              <h2 className="section-title">{nowPlaying?.label || "Flow preview"}</h2>
+              <h2 className="section-title">{playingLabel}</h2>
               <p className="microcopy">
                 {items.length > 1
                   ? `Playing your sequence · ${items.length} slides`
@@ -77,11 +81,9 @@ export function Reactions({ state }) {
             <div className="live-chip">PLAYING</div>
           </div>
           <SlideshowPreview
-            items={items}
+            slide={preview.item}
             reactions={state.reactions}
             settings={state.settings}
-            intervalMs={Number(state.settings.autoCycleInterval || 4000)}
-            onSlide={setNowPlaying}
           />
         </Panel>
 

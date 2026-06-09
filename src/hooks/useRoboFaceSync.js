@@ -136,6 +136,37 @@ export function useRoboFaceSync() {
     return picked.length ? picked : state.orderedReactions;
   }, [selectionItems, state.reactions, state.orderedReactions]);
 
+  // Single "now playing" cycler — the whole app (topbar + preview) reads this,
+  // so they always agree and mirror what the device cycles.
+  const previewSlides = useMemo(() => {
+    const known = ["time", "date", "weather", "quote"];
+    return selectionItems.filter((it) =>
+      it.t === "r" ? state.reactions[it.id] : known.includes(it.key),
+    );
+  }, [selectionItems, state.reactions]);
+
+  const [previewIndex, setPreviewIndex] = useState(0);
+  const previewInterval = Number(state.settings.autoCycleInterval || 4000);
+  useEffect(() => {
+    if (previewSlides.length <= 1) {
+      return undefined;
+    }
+    const id = window.setInterval(
+      () => setPreviewIndex((i) => (i + 1) % previewSlides.length),
+      previewInterval,
+    );
+    return () => window.clearInterval(id);
+  }, [previewSlides.length, previewInterval]);
+
+  const safePreviewIndex = previewSlides.length ? previewIndex % previewSlides.length : 0;
+  const previewItem = previewSlides[safePreviewIndex] || null;
+  const preview = {
+    index: safePreviewIndex,
+    count: previewSlides.length,
+    item: previewItem,
+    reaction: previewItem && previewItem.t === "r" ? state.reactions[previewItem.id] : null,
+  };
+
   // Denormalize the "In use" list into a compact playlist and push it to the
   // device. The DEVICE cycles this on its own (faces + full-screen widgets),
   // so it keeps running even when no app/phone is open.
@@ -551,6 +582,7 @@ export function useRoboFaceSync() {
   return {
     ...state,
     selectionItems,
+    preview,
     firmware: rawState?.firmware || null,
     firebaseConnected,
     realtimeMode: realtimeStore.mode,

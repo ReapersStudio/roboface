@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { RobotFaceCanvas } from "./RobotFaceCanvas.jsx";
 
-const WIDGET_LABELS = { time: "Time", date: "Date", weather: "Weather", quote: "Quote" };
 const QUOTES = [
   "Stay curious.",
   "Beep boop, hello!",
@@ -58,40 +57,15 @@ function WidgetSlide({ wid, settings }) {
   );
 }
 
-// Plays the In-use list as a slideshow (faces + full-screen widgets), exactly
-// like the device does — so you can see the flow in the app.
-export function SlideshowPreview({ items, reactions, settings, intervalMs = 4000, onSlide }) {
-  const slides = useMemo(
-    () => (items || []).filter((it) => (it.t === "r" ? reactions[it.id] : WIDGET_LABELS[it.key])),
-    [items, reactions],
-  );
-  const [idx, setIdx] = useState(0);
-  const onSlideRef = useRef(onSlide);
-  onSlideRef.current = onSlide;
-
-  useEffect(() => {
-    if (slides.length <= 1) return undefined;
-    const id = window.setInterval(() => setIdx((i) => (i + 1) % slides.length), intervalMs);
-    return () => window.clearInterval(id);
-  }, [slides.length, intervalMs]);
-
-  const safeIdx = slides.length ? idx % slides.length : 0;
-  const cur = slides[safeIdx];
-
-  useEffect(() => {
-    if (!cur || !onSlideRef.current) return;
-    onSlideRef.current(
-      cur.t === "r"
-        ? { kind: "reaction", label: reactions[cur.id]?.name || "Reaction", index: safeIdx }
-        : { kind: "widget", label: `${WIDGET_LABELS[cur.key]} widget`, index: safeIdx },
-    );
-  }, [cur, safeIdx, reactions]);
-
-  if (!cur) {
+// Controlled: renders the single slide it's told to show. The cycling lives in
+// the sync hook so the topbar and this preview always show the same thing.
+export function SlideshowPreview({ slide, reactions, settings }) {
+  if (!slide) {
     return <div className="robot-canvas" />;
   }
-  if (cur.t === "r") {
-    return <RobotFaceCanvas reaction={reactions[cur.id]} settings={settings} />;
+  if (slide.t === "r") {
+    const r = reactions[slide.id];
+    return r ? <RobotFaceCanvas reaction={r} settings={settings} /> : <div className="robot-canvas" />;
   }
-  return <WidgetSlide wid={cur.key} settings={settings} />;
+  return <WidgetSlide wid={slide.key} settings={settings} />;
 }
