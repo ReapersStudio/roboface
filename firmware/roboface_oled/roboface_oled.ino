@@ -62,7 +62,7 @@
 // Firmware version of THIS build. The device self-updates over the air when
 // /roboface/firmware/version in Firebase differs from this. Bump it every
 // time you publish a new .bin to your GitHub release.
-#define FW_VERSION "1.5.1"
+#define FW_VERSION "1.5.2"
 
 // OLED
 #define SCREEN_WIDTH 128
@@ -1057,9 +1057,9 @@ void checkForOTA()
 // ---------------- setup / loop ----------------
 #define SETUP_AP_NAME "Kiibo" // the setup hotspot name (also on the box QR)
 
-// Setup screen: scannable WiFi QR on the right (scanning it joins the "Kiibo"
-// hotspot), short instructions on the left. Drawn as dark modules on a lit
-// background so a phone camera reads it.
+// Setup screen: a big, centered WiFi QR on a white card (dark modules on a lit
+// background, with a wide quiet zone) so a phone camera locks on and shows the
+// "Join Wi-Fi 'Kiibo'?" popup. Scanning it joins the device's setup hotspot.
 void drawWifiSetupScreen()
 {
   display.clearDisplay();
@@ -1069,21 +1069,24 @@ void drawWifiSetupScreen()
   qrcode_initText(&qrcode, qrData, 2, ECC_LOW, "WIFI:S:" SETUP_AP_NAME ";T:nopass;;");
 
   const int scale = 2;
-  int qpx = qrcode.size * scale;                 // 25 modules * 2 = 50px
-  int ox = SCREEN_WIDTH - qpx - 5;
-  int oy = (SCREEN_HEIGHT - qpx) / 2;
-  display.fillRect(ox - 5, oy - 5, qpx + 10, qpx + 10, SSD1306_WHITE); // light quiet zone
+  int qpx = qrcode.size * scale;        // 25 * 2 = 50px
+  int quiet = 6;                        // white border helps the camera lock on
+  int cardH = qpx + quiet * 2;          // 62 -> fills the 64px height
+  int cx = SCREEN_WIDTH - qpx - quiet - 2; // QR on the right
+  int cy = (SCREEN_HEIGHT - cardH) / 2 + quiet;
+
+  display.fillRect(cx - quiet, 1, qpx + quiet * 2, cardH, SSD1306_WHITE);
   for (uint8_t y = 0; y < qrcode.size; y++)
     for (uint8_t x = 0; x < qrcode.size; x++)
       if (qrcode_getModule(&qrcode, x, y))
-        display.fillRect(ox + x * scale, oy + y * scale, scale, scale, SSD1306_BLACK);
+        display.fillRect(cx + x * scale, cy + y * scale, scale, scale, SSD1306_BLACK);
 
   display.setTextColor(SSD1306_WHITE);
   display.setTextSize(1);
-  display.setCursor(0, 6);  display.println("Set up");
-  display.setCursor(0, 16); display.println("WiFi:");
-  display.setCursor(0, 32); display.println("Scan w/");
-  display.setCursor(0, 42); display.println("phone");
+  display.setCursor(0, 8);  display.println("Scan");
+  display.setCursor(0, 18); display.println("with");
+  display.setCursor(0, 28); display.println("phone");
+  display.setCursor(0, 44); display.println("WiFi:");
   display.setCursor(0, 54); display.println(SETUP_AP_NAME);
   display.display();
 }
