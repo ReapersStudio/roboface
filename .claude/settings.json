@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh api *)",
+      "Bash(node _pdf.mjs)",
+      "Bash(git tag *)",
+      "Bash(gh run *)",
+      "Bash(gh release *)"
+    ]
+  }
+}

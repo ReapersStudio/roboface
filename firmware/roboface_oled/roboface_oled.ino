@@ -16,6 +16,7 @@
  * Libraries (install via Arduino Library Manager):
  *   - "Firebase Arduino Client Library for ESP8266 and ESP32" by Mobizt
  *   - "Adafruit SSD1306"  (pulls in "Adafruit GFX Library")
+ *   - "WiFiManager" by tzapu  (captive-portal WiFi provisioning)
  *
  * Board: any ESP32 dev board.
  *
@@ -33,6 +34,7 @@
 #include <Adafruit_SSD1306.h>
 
 #include <WiFi.h>
+#include <WiFiManager.h> // captive-portal WiFi provisioning (no hardcoded creds)
 #include <Firebase_ESP_Client.h>
 #include "addons/TokenHelper.h"
 #include "addons/RTDBHelper.h"
@@ -46,7 +48,8 @@
 // they are never published. Copy arduino_secrets_example.h -> arduino_secrets.h
 // and fill it in. The cloud build (GitHub Actions) generates this file from the
 // repository's Actions Secrets, so the source repo stays free of credentials.
-//   Provides: WIFI_SSID, WIFI_PASSWORD, API_KEY, DATABASE_URL, DATABASE_SECRET
+//   Provides: API_KEY, DATABASE_URL, DATABASE_SECRET
+//   (WiFi is no longer hardcoded — set on the device via the setup portal.)
 #include "arduino_secrets.h"
 
 // Must match VITE_FIREBASE_ROOT_PATH in the web app (.env). Default: roboface
@@ -57,7 +60,7 @@
 // Firmware version of THIS build. The device self-updates over the air when
 // /roboface/firmware/version in Firebase differs from this. Bump it every
 // time you publish a new .bin to your GitHub release.
-#define FW_VERSION "1.1.0"
+#define FW_VERSION "1.2.0"
 
 // OLED
 #define SCREEN_WIDTH 128
@@ -736,17 +739,39 @@ void checkForOTA()
 }
 
 // ---------------- setup / loop ----------------
+// Connect using saved WiFi; if none/unreachable, open a "RoboFace-Setup" hotspot
+// so the customer enters their own WiFi from a phone — no hardcoded credentials.
 void connectWiFi()
 {
   WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  Serial.print("WiFi connecting");
-  while (WiFi.status() != WL_CONNECTED)
+
+  WiFiManager wm;
+  wm.setConfigPortalTimeout(180); // 3 min in setup mode, then reboot & retry
+
+  // When the setup portal opens, show instructions on the OLED
+  wm.setAPCallback([](WiFiManager *mgr) {
+    display.clearDisplay();
+    display.setTextColor(SSD1306_WHITE);
+    display.setTextSize(1);
+    display.setCursor(0, 0);
+    display.println("Wi-Fi setup");
+    display.println("");
+    display.println("1) Phone WiFi:");
+    display.println("   RoboFace-Setup");
+    display.println("2) Open page:");
+    display.println("   192.168.4.1");
+    display.display();
+  });
+
+  // Tries the saved network first; only opens the portal if it can't connect.
+  bool ok = wm.autoConnect("RoboFace-Setup");
+  if (!ok)
   {
-    delay(300);
-    Serial.print(".");
+    Serial.println("WiFi setup timed out - restarting");
+    ESP.restart();
   }
-  Serial.printf("\nWiFi OK  IP: %s\n", WiFi.localIP().toString().c_str());
+  Serial.printf("WiFi OK  IP: %s  RSSI: %d dBm\n",
+                WiFi.localIP().toString().c_str(), WiFi.RSSI());
 }
 
 void setup()

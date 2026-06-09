@@ -31,14 +31,13 @@ jobs:
           arduino-cli lib install \
             "Adafruit GFX Library" \
             "Adafruit SSD1306" \
-            "Firebase Arduino Client Library for ESP8266 and ESP32"
+            "Firebase Arduino Client Library for ESP8266 and ESP32" \
+            "WiFiManager"
 
       - name: Create secrets header from repo Secrets
         run: |
           cat > firmware/roboface_oled/arduino_secrets.h <<EOF
           #pragma once
-          #define WIFI_SSID "${{ secrets.WIFI_SSID }}"
-          #define WIFI_PASSWORD "${{ secrets.WIFI_PASSWORD }}"
           #define API_KEY "${{ secrets.FB_API_KEY }}"
           #define DATABASE_URL "${{ secrets.FB_DATABASE_URL }}"
           #define DATABASE_SECRET "${{ secrets.FB_DATABASE_SECRET }}"
