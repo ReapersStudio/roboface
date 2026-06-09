@@ -14,6 +14,21 @@ import {
 import { realtimeStore } from "../services/realtimeStore.js";
 
 const nowStamp = () => Date.now();
+
+// Minutes east of UTC for a region (so the device clock matches the app exactly).
+const offsetMinutesFor = (tz) => {
+  try {
+    if (!tz || tz === "auto") {
+      return -new Date().getTimezoneOffset(); // browser local offset
+    }
+    const d = new Date();
+    const utc = new Date(d.toLocaleString("en-US", { timeZone: "UTC" }));
+    const local = new Date(d.toLocaleString("en-US", { timeZone: tz }));
+    return Math.round((local - utc) / 60000);
+  } catch {
+    return -new Date().getTimezoneOffset();
+  }
+};
 const slug = (value) =>
   String(value || "")
     .trim()
@@ -214,19 +229,23 @@ export function useRoboFaceSync() {
       })
       .filter(Boolean);
 
+    const display = state.settings.display || {};
     const playlistJson = JSON.stringify(slides);
     const cycleMs = Number(state.settings.autoCycleInterval || 4000);
-    const signature = `${deviceId}|${cycleMs}|${playlistJson}`;
+    const tzOffset = offsetMinutesFor(display.region);
+    const timeFormat = display.timeFormat || "24h";
+    const signature = `${deviceId}|${cycleMs}|${tzOffset}|${timeFormat}|${playlistJson}`;
     if (signature === lastPlaylistRef.current) {
       return; // nothing changed — avoid a write/update feedback loop
     }
     lastPlaylistRef.current = signature;
 
-    realtimeStore.updateValue(`devices/${deviceId}`, { playlistJson, cycleMs });
+    realtimeStore.updateValue(`devices/${deviceId}`, { playlistJson, cycleMs, tzOffset, timeFormat });
   }, [
     selectionItems,
     state.reactions,
     state.settings.autoCycleInterval,
+    state.settings.display,
     state.control.currentDeviceId,
   ]);
 

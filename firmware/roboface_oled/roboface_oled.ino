@@ -61,7 +61,7 @@
 // Firmware version of THIS build. The device self-updates over the air when
 // /roboface/firmware/version in Firebase differs from this. Bump it every
 // time you publish a new .bin to your GitHub release.
-#define FW_VERSION "1.4.4"
+#define FW_VERSION "1.4.5"
 
 // OLED
 #define SCREEN_WIDTH 128
@@ -416,31 +416,23 @@ void drawZzz(unsigned long t)
 }
 
 // ---------------- time / widgets ----------------
-// Map the app's region values to POSIX TZ strings (handles DST where relevant).
-String posixTZ(const String &r)
+// Timezone is driven by an offset (seconds) the app sends in `tzOffset` minutes,
+// so the OLED matches the app exactly (the app knows the real local offset).
+long tzOffsetSec = 0;
+long appliedOffsetSec = 0x7FFFFFFF; // impossible value -> apply on first call
+
+void applyTimezoneIfChanged()
 {
-  if (r == "Asia/Kolkata") return "IST-5:30";
-  if (r == "Asia/Dubai") return "GST-4";
-  if (r == "Europe/London") return "GMT0BST,M3.5.0/1,M10.5.0";
-  if (r == "America/New_York") return "EST5EDT,M3.2.0,M11.1.0";
-  if (r == "America/Los_Angeles") return "PST8PDT,M3.2.0,M11.1.0";
-  if (r == "Asia/Singapore") return "SGT-8";
-  if (r == "Australia/Sydney") return "AEST-10AEDT,M10.1.0,M4.1.0/3";
-  return "GMT0"; // auto / unknown
+  if (tzOffsetSec == appliedOffsetSec) return;
+  configTime(tzOffsetSec, 0, "pool.ntp.org", "time.google.com");
+  appliedOffsetSec = tzOffsetSec;
 }
 
 void startNtp()
 {
-  configTime(0, 0, "pool.ntp.org", "time.google.com");
+  configTime(tzOffsetSec, 0, "pool.ntp.org", "time.google.com");
+  appliedOffsetSec = tzOffsetSec;
   ntpStarted = true;
-}
-
-void applyTimezoneIfChanged()
-{
-  if (g.region == appliedRegion) return;
-  setenv("TZ", posixTZ(g.region).c_str(), 1);
-  tzset();
-  appliedRegion = g.region;
 }
 
 bool localNow(struct tm &out)
@@ -715,7 +707,7 @@ void reportCurSlide()
   if (slideIdx == reportedSlide) return;
   reportedSlide = slideIdx;
   String p = String("/") + ROOT_PATH + "/devices/" + DEVICE_ID + "/curSlide";
-  Firebase.RTDB.setInt(&fbdo, p.c_str(), slideIdx);
+  Firebase.RTDB.setIntAsync(&fbdo, p.c_str(), slideIdx); // async = no render stall
 }
 
 // Top-level: cycle the playlist on our own and draw the current slide.
@@ -873,6 +865,8 @@ void applyField(const String &k, const String &v)
     g.timeFormat = v;
   else if (k == "region")
     g.region = v;
+  else if (k == "tzOffset")
+    tzOffsetSec = (long)v.toInt() * 60L; // minutes -> seconds
   else if (k == "weatherLocation")
     g.weatherLocation = v;
 }
@@ -1131,9 +1125,9 @@ void loop()
     {
       lastBeat = millis();
       String b = String("/") + ROOT_PATH + "/devices/" + DEVICE_ID;
-      Firebase.RTDB.setInt(&fbdo, (b + "/slideCount").c_str(), slideCount);
-      Firebase.RTDB.setInt(&fbdo, (b + "/uptime").c_str(), (int)(millis() / 1000));
-      Firebase.RTDB.setBool(&fbdo, (b + "/online").c_str(), true);
+      Firebase.RTDB.setIntAsync(&fbdo, (b + "/slideCount").c_str(), slideCount);
+      Firebase.RTDB.setIntAsync(&fbdo, (b + "/uptime").c_str(), (int)(millis() / 1000));
+      Firebase.RTDB.setBoolAsync(&fbdo, (b + "/online").c_str(), true);
     }
 
     // Fetch the playlist cleanly (the stream's copy is escaped JSON)
