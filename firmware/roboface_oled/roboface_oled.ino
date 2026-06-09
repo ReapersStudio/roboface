@@ -43,9 +43,6 @@
 #include <HTTPUpdate.h>       // self-flash from a .bin URL
 #include <time.h>             // NTP clock for time/date widgets
 #include <ArduinoJson.h>      // parse the playlist the app sends
-extern "C" {
-#include "qrcode.h"           // QR code on the OLED for WiFi setup
-}
 
 // ===================== USER CONFIG =====================
 // Secrets (WiFi + Firebase) live in arduino_secrets.h, which is git-ignored so
@@ -1057,36 +1054,20 @@ void checkForOTA()
 }
 
 // ---------------- setup / loop ----------------
-#define SETUP_AP_NAME "Kiibo" // short so the WiFi QR fits the small OLED
+#define SETUP_AP_NAME "Kiibo" // the setup hotspot name (also on the box QR)
 
-// Setup screen: a scannable QR on the right (joins the "Kiibo" hotspot) + text.
-// Customer scans with their phone camera -> joins -> the setup page opens, where
-// they pick THEIR home WiFi. No seller credentials anywhere.
+// Setup screen: tell the customer how to join the hotspot and open the page.
+// (The scannable WiFi QR is printed on the box/manual — it joins this hotspot.)
 void drawWifiSetupScreen()
 {
   display.clearDisplay();
-
-  QRCode qrcode;
-  uint8_t qrData[qrcode_getBufferSize(2)];
-  qrcode_initText(&qrcode, qrData, 2, ECC_LOW, "WIFI:S:" SETUP_AP_NAME ";T:nopass;;");
-
-  const int scale = 2;
-  int qpx = qrcode.size * scale;
-  int ox = SCREEN_WIDTH - qpx - 4;
-  int oy = (SCREEN_HEIGHT - qpx) / 2;
-  display.fillRect(ox - 4, oy - 4, qpx + 8, qpx + 8, SSD1306_WHITE); // light quiet zone
-  for (uint8_t y = 0; y < qrcode.size; y++)
-    for (uint8_t x = 0; x < qrcode.size; x++)
-      if (qrcode_getModule(&qrcode, x, y))
-        display.fillRect(ox + x * scale, oy + y * scale, scale, scale, SSD1306_BLACK);
-
   display.setTextColor(SSD1306_WHITE);
   display.setTextSize(1);
-  display.setCursor(0, 4);  display.println("Set up");
-  display.setCursor(0, 14); display.println("WiFi:");
-  display.setCursor(0, 30); display.println("Scan QR");
-  display.setCursor(0, 40); display.println("w/ camera");
-  display.setCursor(0, 54); display.println("net:" SETUP_AP_NAME);
+  display.setCursor(0, 2);  display.println("Wi-Fi setup");
+  display.setCursor(0, 18); display.println("On your phone:");
+  display.setCursor(0, 30); display.println("1) Join WiFi:");
+  display.setCursor(0, 40); display.println("   " SETUP_AP_NAME);
+  display.setCursor(0, 52); display.println("2) Scan box QR");
   display.display();
 }
 
