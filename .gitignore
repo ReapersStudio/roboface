@@ -10,3 +10,6 @@ logs/
 .env.local
 .env.*.local
 firmware/roboface_oled/arduino_secrets.h
+
+# Claude Code local settings
+.claude/
