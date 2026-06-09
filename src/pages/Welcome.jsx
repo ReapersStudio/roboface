@@ -1,10 +1,18 @@
 import { ArrowRight, Smile, Sparkles, Wifi, WifiOff } from "lucide-react";
 import { Button, Panel } from "../components/Controls.jsx";
-import { RobotFaceCanvas } from "../components/RobotFaceCanvas.jsx";
+import { SlideshowPreview } from "../components/SlideshowPreview.jsx";
+
+const WIDGET_NAMES = { time: "Time", date: "Date", weather: "Weather", quote: "Quote" };
 
 export function Welcome({ state, onNavigate }) {
   const deviceOnline = Boolean(state.activeDevice?.connected || state.activeDevice?.online);
   const firebaseLive = state.realtimeMode === "firebase" && state.firebaseConnected;
+  const preview = state.preview || {};
+  const playingLabel = preview.reaction
+    ? preview.reaction.name
+    : preview.item?.t === "w"
+      ? `${WIDGET_NAMES[preview.item.key] || "Widget"} widget`
+      : state.currentReaction.name;
 
   return (
     <div className="welcome-layout">
@@ -42,12 +50,12 @@ export function Welcome({ state, onNavigate }) {
       <Panel className="welcome-preview">
         <div className="canvas-header">
           <div>
-            <h2 className="section-title">Live preview</h2>
-            <p className="microcopy">Current reaction: {state.currentReaction.name}</p>
+            <h2 className="section-title">Flow preview</h2>
+            <p className="microcopy">Now playing: {playingLabel}</p>
           </div>
-          <div className="live-chip">LIVE</div>
+          <div className="live-chip">PLAYING</div>
         </div>
-        <RobotFaceCanvas reaction={state.currentReaction} settings={state.settings} />
+        <SlideshowPreview slide={preview.item} reactions={state.reactions} settings={state.settings} />
       </Panel>
     </div>
   );

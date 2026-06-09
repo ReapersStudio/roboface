@@ -1288,6 +1288,10 @@ button {
   min-height: 280px;
 }
 
+.welcome-preview .slide-widget {
+  min-height: 360px;
+}
+
 .sw-time {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: clamp(2.5rem, 7vw, 4rem);
