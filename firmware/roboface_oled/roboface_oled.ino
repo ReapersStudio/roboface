@@ -61,7 +61,7 @@
 // Firmware version of THIS build. The device self-updates over the air when
 // /roboface/firmware/version in Firebase differs from this. Bump it every
 // time you publish a new .bin to your GitHub release.
-#define FW_VERSION "1.4.2"
+#define FW_VERSION "1.4.3"
 
 // OLED
 #define SCREEN_WIDTH 128
@@ -747,14 +747,23 @@ void drawFrame()
 }
 
 // Parse the playlist JSON the app sends into our local slides[] array.
-void parsePlaylist(const String &json)
+// The value is stored as a STRING in RTDB, so it comes back escaped
+// (outer quotes + \" for inner quotes) — clean it up before parsing.
+void parsePlaylist(const String &jsonIn)
 {
+  String json = jsonIn;
+  json.trim();
+  if (json.length() >= 2 && json.startsWith("\"") && json.endsWith("\""))
+    json = json.substring(1, json.length() - 1); // strip outer quotes
+  json.replace("\\\"", "\""); // unescape inner quotes
+  json.replace("\\\\", "\\");
+
   if (json.length() < 2) { slideCount = 0; return; }
   DynamicJsonDocument doc(8192);
   DeserializationError err = deserializeJson(doc, json);
   if (err)
   {
-    Serial.printf("playlist parse error: %s\n", err.c_str());
+    Serial.printf("playlist parse error: %s | raw: %s\n", err.c_str(), json.c_str());
     return;
   }
   JsonArray arr = doc.as<JsonArray>();
