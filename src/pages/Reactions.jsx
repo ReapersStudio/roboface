@@ -10,8 +10,10 @@ import {
   Send,
   X,
 } from "lucide-react";
+import { useState } from "react";
 import { Panel, TextField, Toggle } from "../components/Controls.jsx";
 import { RobotFaceCanvas } from "../components/RobotFaceCanvas.jsx";
+import { SlideshowPreview } from "../components/SlideshowPreview.jsx";
 
 const WIDGETS = [
   { key: "time", label: "Time", description: "Show the current time on the display", Icon: Clock3 },
@@ -24,6 +26,7 @@ const WIDGET_BY_KEY = Object.fromEntries(WIDGETS.map((w) => [w.key, w]));
 export function Reactions({ state }) {
   const { actions } = state;
   const display = state.settings.display;
+  const [nowPlaying, setNowPlaying] = useState(null);
   // keep only items that still resolve (drops stale reaction ids / unknown widgets)
   const items = (state.selectionItems || []).filter((it) =>
     it.t === "r" ? Boolean(state.reactions[it.id]) : Boolean(WIDGET_BY_KEY[it.key]),
@@ -60,16 +63,26 @@ export function Reactions({ state }) {
   return (
     <div className="reactions-pro">
       <div className="reactions-pro-left">
-        {/* LIVE PREVIEW */}
+        {/* LIVE PREVIEW — plays the whole flow like the device does */}
         <Panel className="live-box">
           <div className="canvas-header">
             <div>
-              <h2 className="section-title">{state.currentReaction.name}</h2>
-              <p className="microcopy">Reaction {state.currentReaction.code} · {state.currentReaction.mood}</p>
+              <h2 className="section-title">{nowPlaying?.label || "Flow preview"}</h2>
+              <p className="microcopy">
+                {items.length > 1
+                  ? `Playing your sequence · ${items.length} slides`
+                  : "Add more items to see the flow"}
+              </p>
             </div>
-            <div className="live-chip">ON DEVICE</div>
+            <div className="live-chip">PLAYING</div>
           </div>
-          <RobotFaceCanvas reaction={state.currentReaction} settings={state.settings} />
+          <SlideshowPreview
+            items={items}
+            reactions={state.reactions}
+            settings={state.settings}
+            intervalMs={Number(state.settings.autoCycleInterval || 4000)}
+            onSlide={setNowPlaying}
+          />
         </Panel>
 
         {/* BOX 1 — In use (reactions + widgets, one ordered list) */}
