@@ -32,7 +32,8 @@ jobs:
             "Adafruit GFX Library" \
             "Adafruit SSD1306" \
             "Firebase Arduino Client Library for ESP8266 and ESP32" \
-            "WiFiManager"
+            "WiFiManager" \
+            "ArduinoJson"
 
       - name: Create secrets header from repo Secrets
         run: |

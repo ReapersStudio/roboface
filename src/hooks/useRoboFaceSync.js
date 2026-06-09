@@ -136,33 +136,57 @@ export function useRoboFaceSync() {
     return picked.length ? picked : state.orderedReactions;
   }, [selectionItems, state.reactions, state.orderedReactions]);
 
+  // Denormalize the "In use" list into a compact playlist and push it to the
+  // device. The DEVICE cycles this on its own (faces + full-screen widgets),
+  // so it keeps running even when no app/phone is open.
+  const lastPlaylistRef = useRef("");
   useEffect(() => {
-    if (!state.control.autoCycle || selectedReactions.length < 2) {
-      return undefined;
+    const deviceId = state.control.currentDeviceId;
+    if (!deviceId) {
+      return;
     }
 
-    const interval = window.setInterval(() => {
-      const currentIndex = selectedReactions.findIndex(
-        (reaction) => reaction.id === state.control.currentReactionId,
-      );
-      const nextReaction = selectedReactions[(currentIndex + 1) % selectedReactions.length];
-      realtimeStore.updateValue("control", {
-        currentReactionId: nextReaction.id,
-        currentReactionCode: nextReaction.code,
-        updatedAt: nowStamp(),
-        source: "auto-cycle",
-      });
-      syncReactionToDevice(nextReaction, state.control.currentDeviceId, "auto-cycle");
-    }, state.settings.autoCycleInterval);
+    const knownWidgets = ["time", "date", "weather", "quote"];
+    const slides = selectionItems
+      .map((item) => {
+        if (item.t === "w") {
+          return knownWidgets.includes(item.key) ? { t: "w", wid: item.key } : null;
+        }
+        const r = state.reactions[item.id];
+        if (!r) {
+          return null;
+        }
+        return {
+          t: "r",
+          code: Number(r.code),
+          feat: r.feature || "normal",
+          ew: Number(r.eyeWidth),
+          eh: Number(r.eyeHeight),
+          lx: Number(r.leftX),
+          rx: Number(r.rightX),
+          ly: Number(r.leftY),
+          ry: Number(r.rightY),
+          la: Number(r.leftAngle),
+          ra: Number(r.rightAngle),
+          bl: r.blink ? 1 : 0,
+        };
+      })
+      .filter(Boolean);
 
-    return () => window.clearInterval(interval);
+    const playlistJson = JSON.stringify(slides);
+    const cycleMs = Number(state.settings.autoCycleInterval || 4000);
+    const signature = `${deviceId}|${cycleMs}|${playlistJson}`;
+    if (signature === lastPlaylistRef.current) {
+      return; // nothing changed — avoid a write/update feedback loop
+    }
+    lastPlaylistRef.current = signature;
+
+    realtimeStore.updateValue(`devices/${deviceId}`, { playlistJson, cycleMs });
   }, [
-    state.control.autoCycle,
-    state.control.currentDeviceId,
-    state.control.currentReactionId,
-    selectedReactions,
+    selectionItems,
+    state.reactions,
     state.settings.autoCycleInterval,
-    syncReactionToDevice,
+    state.control.currentDeviceId,
   ]);
 
   const selectReaction = useCallback(
@@ -502,6 +526,20 @@ export function useRoboFaceSync() {
     [state.control.currentDeviceId],
   );
 
+  // Jump the device's slideshow to a specific slide (used by "Use").
+  const requestJump = useCallback(
+    (index, deviceId = state.control.currentDeviceId) => {
+      if (!deviceId || index == null || index < 0) {
+        return;
+      }
+      realtimeStore.updateValue(`devices/${deviceId}`, {
+        jumpTo: index,
+        updatedAt: nowStamp(),
+      });
+    },
+    [state.control.currentDeviceId],
+  );
+
   const updateSettings = useCallback((patch) => {
     realtimeStore.updateValue("settings", patch);
   }, []);
@@ -539,6 +577,7 @@ export function useRoboFaceSync() {
       updateDisplay,
       setSelectionItems,
       requestDeviceUpdate,
+      requestJump,
       updateSettings,
       updateFirebaseSettings,
     },

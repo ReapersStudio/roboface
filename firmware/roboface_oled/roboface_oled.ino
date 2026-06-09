@@ -42,6 +42,7 @@
 #include <WiFiClientSecure.h> // OTA over HTTPS (GitHub)
 #include <HTTPUpdate.h>       // self-flash from a .bin URL
 #include <time.h>             // NTP clock for time/date widgets
+#include <ArduinoJson.h>      // parse the playlist the app sends
 
 // ===================== USER CONFIG =====================
 // Secrets (WiFi + Firebase) live in arduino_secrets.h, which is git-ignored so
@@ -60,7 +61,7 @@
 // Firmware version of THIS build. The device self-updates over the air when
 // /roboface/firmware/version in Firebase differs from this. Bump it every
 // time you publish a new .bin to your GitHub release.
-#define FW_VERSION "1.3.0"
+#define FW_VERSION "1.4.0"
 
 // OLED
 #define SCREEN_WIDTH 128
@@ -135,6 +136,26 @@ const int QUOTE_COUNT = sizeof(QUOTES) / sizeof(QUOTES[0]);
 // timezone state
 String appliedRegion = "";
 bool ntpStarted = false;
+
+// ---- Playlist (the ordered slideshow the device cycles on its own) ----
+struct Slide
+{
+  bool widget = false;
+  String w = "time"; // widget name when widget==true
+  int code = 0;
+  String feature = "normal";
+  float eyeWidth = 130, eyeHeight = 120;
+  float leftX = -80, rightX = 80, leftY = 0, rightY = 0;
+  float leftAngle = 0, rightAngle = 0;
+  bool blink = true;
+};
+#define MAX_SLIDES 40
+Slide slides[MAX_SLIDES];
+int slideCount = 0;
+int slideIdx = 0;
+unsigned long slideStart = 0;
+unsigned long cycleMs = 4000;
+int reportedSlide = -1;
 
 // ---- Interpolated pose that is actually drawn (web app lerps at 0.15) ----
 struct Pose
@@ -505,10 +526,9 @@ void drawWidgets(unsigned long t)
   }
 }
 
-// ---------------- main frame render ----------------
-void renderFrame()
+// ---------------- face render (one reaction) ----------------
+void renderFace(unsigned long t)
 {
-  unsigned long t = millis();
   Pose target = computeTarget(t);
 
   if (!curInit)
@@ -588,16 +608,210 @@ void renderFrame()
   if (featZzz())
     drawZzz(t);
 
-  // widgets (time / date / quote / weather) stacked at the top by order
-  drawWidgets(t);
-
   display.display();
+}
+
+// ---------------- full-screen widget slides ----------------
+void renderWidgetFull(const String &w, unsigned long t)
+{
+  display.clearDisplay();
+  display.setTextColor(SSD1306_WHITE);
+  applyTimezoneIfChanged();
+  struct tm tm;
+  bool have = localNow(tm);
+  int16_t x1, y1;
+  uint16_t tw, th;
+
+  if (w == "time")
+  {
+    String s = have ? widgetTimeText(tm) : String("--:--");
+    if (have && (tm.tm_sec % 2)) s.replace(":", " "); // blinking colon
+    display.setTextSize(3);
+    display.getTextBounds(s, 0, 0, &x1, &y1, &tw, &th);
+    if (tw > SCREEN_WIDTH - 4)
+    {
+      display.setTextSize(2);
+      display.getTextBounds(s, 0, 0, &x1, &y1, &tw, &th);
+    }
+    display.setCursor((SCREEN_WIDTH - tw) / 2, (SCREEN_HEIGHT - th) / 2);
+    display.print(s);
+  }
+  else if (w == "date")
+  {
+    static const char *wd[] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
+    static const char *mo[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+    if (have)
+    {
+      char big[4];
+      snprintf(big, sizeof(big), "%02d", tm.tm_mday);
+      display.setTextSize(3);
+      display.getTextBounds(big, 0, 0, &x1, &y1, &tw, &th);
+      display.setCursor((SCREEN_WIDTH - tw) / 2, 8);
+      display.print(big);
+      display.setTextSize(1);
+      String line = String(mo[tm.tm_mon]) + "  " + wd[tm.tm_wday];
+      display.getTextBounds(line, 0, 0, &x1, &y1, &tw, &th);
+      display.setCursor((SCREEN_WIDTH - tw) / 2, 46);
+      display.print(line);
+    }
+    else
+    {
+      display.setTextSize(2);
+      display.setCursor(40, 24);
+      display.print("--");
+    }
+  }
+  else if (w == "quote")
+  {
+    int qi = (int)((t / 4000) % QUOTE_COUNT);
+    display.setTextSize(1);
+    display.setTextWrap(true);
+    display.setCursor(3, 16);
+    display.print(QUOTES[qi]);
+    display.setTextWrap(false);
+  }
+  else if (w == "weather")
+  {
+    // animated sun (rays rotate) + placeholder reading until the API is wired
+    int cx = 30, cy = 30, r = 12;
+    display.fillCircle(cx, cy, r, SSD1306_WHITE);
+    float a = t / 350.0f;
+    for (int i = 0; i < 8; i++)
+    {
+      float ang = a + i * (PI / 4.0f);
+      display.drawLine(cx + cos(ang) * (r + 4), cy + sin(ang) * (r + 4),
+                       cx + cos(ang) * (r + 9), cy + sin(ang) * (r + 9), SSD1306_WHITE);
+    }
+    display.setTextSize(1);
+    display.setCursor(56, 22);
+    display.print("Weather");
+    display.setTextSize(2);
+    display.setCursor(56, 34);
+    display.print("--");
+  }
+  display.display();
+}
+
+// Copy a reaction slide's geometry into the live state used by renderFace().
+void applySlide(const Slide &s)
+{
+  g.code = s.code;
+  g.feature = s.feature;
+  g.eyeWidth = s.eyeWidth;
+  g.eyeHeight = s.eyeHeight;
+  g.leftX = s.leftX;
+  g.rightX = s.rightX;
+  g.leftY = s.leftY;
+  g.rightY = s.rightY;
+  g.leftAngle = s.leftAngle;
+  g.rightAngle = s.rightAngle;
+  g.blink = s.blink;
+}
+
+void reportCurSlide()
+{
+  if (slideIdx == reportedSlide) return;
+  reportedSlide = slideIdx;
+  String p = String("/") + ROOT_PATH + "/devices/" + DEVICE_ID + "/curSlide";
+  Firebase.RTDB.setInt(&fbdo, p.c_str(), slideIdx);
+}
+
+// Top-level: cycle the playlist on our own and draw the current slide.
+void drawFrame()
+{
+  unsigned long t = millis();
+
+  if (slideCount == 0)
+  {
+    renderFace(t); // no playlist yet — show whatever the last reaction was
+    return;
+  }
+
+  if (slideCount > 1 && millis() - slideStart > cycleMs)
+  {
+    slideIdx = (slideIdx + 1) % slideCount;
+    slideStart = millis();
+    reportCurSlide();
+  }
+
+  Slide &s = slides[slideIdx];
+  if (s.widget)
+    renderWidgetFull(s.w, t);
+  else
+  {
+    applySlide(s);
+    renderFace(t);
+  }
+}
+
+// Parse the playlist JSON the app sends into our local slides[] array.
+void parsePlaylist(const String &json)
+{
+  if (json.length() < 2) { slideCount = 0; return; }
+  DynamicJsonDocument doc(8192);
+  DeserializationError err = deserializeJson(doc, json);
+  if (err)
+  {
+    Serial.printf("playlist parse error: %s\n", err.c_str());
+    return;
+  }
+  JsonArray arr = doc.as<JsonArray>();
+  int n = 0;
+  for (JsonObject o : arr)
+  {
+    if (n >= MAX_SLIDES) break;
+    Slide &s = slides[n];
+    const char *type = o["t"] | "r";
+    if (type[0] == 'w')
+    {
+      s.widget = true;
+      s.w = String((const char *)(o["wid"] | "time"));
+    }
+    else
+    {
+      s.widget = false;
+      s.code = o["code"] | 0;
+      s.feature = String((const char *)(o["feat"] | "normal"));
+      s.eyeWidth = o["ew"] | 130.0f;
+      s.eyeHeight = o["eh"] | 120.0f;
+      s.leftX = o["lx"] | -80.0f;
+      s.rightX = o["rx"] | 80.0f;
+      s.leftY = o["ly"] | 0.0f;
+      s.rightY = o["ry"] | 0.0f;
+      s.leftAngle = o["la"] | 0.0f;
+      s.rightAngle = o["ra"] | 0.0f;
+      s.blink = ((int)(o["bl"] | 1)) != 0;
+    }
+    n++;
+  }
+  slideCount = n;
+  if (slideIdx >= slideCount) slideIdx = 0;
+  slideStart = millis();
+  reportedSlide = -1;
+  Serial.printf("playlist: %d slides\n", slideCount);
 }
 
 // ---------------- Firebase stream handling ----------------
 void applyField(const String &k, const String &v)
 {
-  if (k == "code")
+  if (k == "playlistJson")
+    parsePlaylist(v);
+  else if (k == "cycleMs")
+  {
+    unsigned long ms = (unsigned long)v.toInt();
+    if (ms >= 500) cycleMs = ms;
+  }
+  else if (k == "jumpTo")
+  {
+    int j = v.toInt();
+    if (j >= 0 && j < slideCount)
+    {
+      slideIdx = j;
+      slideStart = millis();
+      reportCurSlide();
+    }
+  }
+  else if (k == "code")
     g.code = v.toInt();
   else if (k == "feature")
     g.feature = v;
@@ -889,7 +1103,7 @@ void setup()
 
 void loop()
 {
-  renderFrame(); // ~continuous; stream updates arrive via callback
+  drawFrame(); // cycles the playlist on its own; stream updates arrive via callback
 
   // Periodic OTA check (and once shortly after boot). update()/reboot is
   // blocking, but only runs when a newer version is actually published.

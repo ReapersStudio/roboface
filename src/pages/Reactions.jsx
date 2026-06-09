@@ -32,6 +32,7 @@ export function Reactions({ state }) {
   const reactionIdsInUse = items.filter((it) => it.t === "r").map((it) => it.id);
   const widgetKeysInUse = items.filter((it) => it.t === "w").map((it) => it.key);
   const weatherInUse = widgetKeysInUse.includes("weather");
+  const curSlide = Number(state.activeDevice?.curSlide ?? -1); // device's current slide
 
   const commit = (next) => actions.setSelectionItems(next);
 
@@ -84,14 +85,14 @@ export function Reactions({ state }) {
               const widget = !isReaction ? WIDGET_BY_KEY[item.key] : null;
               if (isReaction && !reaction) return null;
               if (!isReaction && !widget) return null;
-              const active = isReaction && state.control.currentReactionId === reaction.id;
+              const active = index === curSlide; // device is currently on this slide
               const Icon = widget?.Icon;
 
               return (
                 <div className={`inuse-row ${active ? "inuse-row-active" : ""}`} key={isReaction ? `r-${item.id}` : `w-${item.key}`}>
                   <span className="order-num">{index + 1}</span>
                   {isReaction ? (
-                    <button className="inuse-main" type="button" onClick={() => actions.selectReaction(reaction)}>
+                    <button className="inuse-main" type="button" onClick={() => actions.requestJump(index)}>
                       <span className="reaction-code">{reaction.code}</span>
                       <span className="inuse-text">
                         <strong>{reaction.name}</strong>
@@ -99,13 +100,13 @@ export function Reactions({ state }) {
                       </span>
                     </button>
                   ) : (
-                    <span className="inuse-main inuse-widget">
+                    <button className="inuse-main inuse-widget" type="button" onClick={() => actions.requestJump(index)}>
                       <span className="widget-icon sm"><Icon size={15} /></span>
                       <span className="inuse-text">
                         <strong>{widget.label}</strong>
-                        <small>widget</small>
+                        <small>{active ? "On device" : "widget"}</small>
                       </span>
-                    </span>
+                    </button>
                   )}
                   <span className="ord-stack">
                     <button className="ord-btn" type="button" onClick={() => move(index, -1)} aria-label="Move up" disabled={index === 0}>
@@ -144,7 +145,15 @@ export function Reactions({ state }) {
                     <span className="gallery-name">{reaction.name}</span>
                   </div>
                   <div className="gallery-actions">
-                    <button className="btn btn-secondary" type="button" onClick={() => actions.selectReaction(reaction)}>
+                    <button
+                      className="btn btn-secondary"
+                      type="button"
+                      onClick={() => {
+                        const idx = items.findIndex((it) => it.t === "r" && it.id === reaction.id);
+                        if (idx >= 0) actions.requestJump(idx);
+                        else addReaction(reaction.id);
+                      }}
+                    >
                       <Send size={14} /> Use
                     </button>
                     <button
