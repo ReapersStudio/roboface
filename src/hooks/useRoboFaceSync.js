@@ -166,7 +166,7 @@ export function useRoboFaceSync() {
   const cycleSec = Math.max(1, Math.floor(Number(state.settings.autoCycleInterval || 4000) / 1000));
   const [, setTick] = useState(0);
   useEffect(() => {
-    const id = window.setInterval(() => setTick((n) => n + 1), 1000);
+    const id = window.setInterval(() => setTick((n) => n + 1), 250); // tight boundary alignment
     return () => window.clearInterval(id);
   }, []);
 
