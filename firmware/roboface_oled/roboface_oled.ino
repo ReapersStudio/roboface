@@ -62,7 +62,7 @@
 // Firmware version of THIS build. The device self-updates over the air when
 // /roboface/firmware/version in Firebase differs from this. Bump it every
 // time you publish a new .bin to your GitHub release.
-#define FW_VERSION "2.0.0"
+#define FW_VERSION "2.1.0"
 
 // OLED — two 128x64 panels on the same I2C bus.
 #define SCREEN_WIDTH 128
@@ -808,7 +808,62 @@ void drawEyes(unsigned long t)
   display.display();
 }
 
-// RIGHT panel — Phase 1 dashboard: big clock + date (weather/music in Phase 2).
+// ---- RIGHT-panel data (populated from Firebase; all optional) ----
+String wxIcon = "", wxTemp = "", wxLoc = "";   // weather: icon name, "31", "Colombo"
+String musTitle = "", musArtist = "";           // now playing
+bool musPlaying = false;
+
+// small weather glyph (~18x16) at top-left (x,y)
+void drawWxIcon(int x, int y, const String &w)
+{
+  int cx = x + 8, cy = y + 8;
+  if (w == "sunny" || w == "sun" || w == "clear")
+  {
+    displayR.fillCircle(cx, cy, 4, SSD1306_WHITE);
+    for (int i = 0; i < 8; i++)
+    {
+      float a = i * (PI / 4);
+      displayR.drawLine(cx + cos(a) * 6, cy + sin(a) * 6, cx + cos(a) * 8, cy + sin(a) * 8, SSD1306_WHITE);
+    }
+  }
+  else if (w == "night" || w == "moon")
+  {
+    displayR.fillCircle(cx, cy, 6, SSD1306_WHITE);
+    displayR.fillCircle(cx + 3, cy - 2, 6, SSD1306_BLACK); // crescent
+  }
+  else // cloud / rain / storm / cloudy
+  {
+    displayR.fillRoundRect(x + 1, y + 6, 16, 6, 3, SSD1306_WHITE);
+    displayR.fillCircle(x + 6, y + 6, 4, SSD1306_WHITE);
+    displayR.fillCircle(x + 11, y + 5, 5, SSD1306_WHITE);
+    if (w == "rain")
+      for (int i = 0; i < 3; i++) displayR.drawLine(x + 4 + i * 5, y + 13, x + 4 + i * 5, y + 16, SSD1306_WHITE);
+    if (w == "storm")
+    { displayR.drawLine(x + 9, y + 12, x + 6, y + 16, SSD1306_WHITE); displayR.drawLine(x + 6, y + 16, x + 10, y + 14, SSD1306_WHITE); }
+  }
+}
+
+// horizontally scrolling text (marquee) if it doesn't fit
+void drawMarquee(const String &s, int y, unsigned long t)
+{
+  displayR.setTextSize(1);
+  int textW = s.length() * 6;
+  if (textW <= SCREEN_WIDTH)
+  {
+    displayR.setCursor((SCREEN_WIDTH - textW) / 2, y);
+    displayR.print(s);
+    return;
+  }
+  String loop = s + "   ";
+  int total = loop.length() * 6;
+  int off = (int)((t / 50) % total);
+  displayR.setCursor(-off, y);
+  displayR.print(loop + loop);
+}
+
+// RIGHT panel — Phase 2 dashboard: date + weather (top), big clock (center),
+// now-playing or location (bottom). Time/date always show; weather & music
+// appear only when their Firebase fields are present.
 void drawDashboard(unsigned long t)
 {
   if (!hasRight) return;
@@ -820,27 +875,50 @@ void drawDashboard(unsigned long t)
   displayR.clearDisplay();
   displayR.setTextColor(SSD1306_WHITE);
 
+  // top-left: date
   if (have)
   {
     static const char *wd[] = {"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
     static const char *mo[] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
-    char d[20];
+    char d[16];
     snprintf(d, sizeof(d), "%s %s %d", wd[tm.tm_wday], mo[tm.tm_mon], tm.tm_mday);
     displayR.setTextSize(1);
-    displayR.getTextBounds(d, 0, 0, &x1, &y1, &tw, &th);
-    displayR.setCursor((SCREEN_WIDTH - tw) / 2, 6);
+    displayR.setCursor(0, 0);
     displayR.print(d);
   }
 
+  // top-right: weather icon + temp
+  if (wxTemp.length())
+  {
+    String tdeg = wxTemp + "C";
+    int twpx = tdeg.length() * 6;
+    displayR.setTextSize(1);
+    displayR.setCursor(SCREEN_WIDTH - twpx, 0);
+    displayR.print(tdeg);
+    if (wxIcon.length()) drawWxIcon(SCREEN_WIDTH - twpx - 20, 0, wxIcon);
+  }
+
+  // center: big clock
   String hhmm = have ? widgetTimeText(tm) : String("--:--");
   displayR.setTextSize(2);
   displayR.getTextBounds(hhmm, 0, 0, &x1, &y1, &tw, &th);
-  displayR.setCursor((SCREEN_WIDTH - tw) / 2, 26);
+  displayR.setCursor((SCREEN_WIDTH - tw) / 2, 24);
   displayR.print(hhmm);
 
-  displayR.setTextSize(1);
-  displayR.setCursor(0, 54);
-  displayR.print("Kiibo v2");
+  // bottom: now-playing (scrolls) or weather location
+  if (musPlaying && musTitle.length())
+  {
+    String np = musTitle + (musArtist.length() ? " - " + musArtist : "");
+    drawMarquee(np, 54, t);
+  }
+  else if (wxLoc.length())
+  {
+    displayR.setTextSize(1);
+    displayR.getTextBounds(wxLoc, 0, 0, &x1, &y1, &tw, &th);
+    displayR.setCursor((SCREEN_WIDTH - tw) / 2, 54);
+    displayR.print(wxLoc);
+  }
+
   displayR.display();
 }
 
@@ -850,7 +928,8 @@ void drawFrame()
   unsigned long t = millis();
   drawEyes(t);
   static unsigned long lastDash = 0;
-  if (millis() - lastDash > 500) { lastDash = millis(); drawDashboard(t); }
+  unsigned long dashEvery = musPlaying ? 60 : 500; // fast for smooth marquee
+  if (millis() - lastDash > dashEvery) { lastDash = millis(); drawDashboard(t); }
 }
 
 // Parse the playlist JSON the app sends into our local slides[] array.
@@ -984,6 +1063,18 @@ void applyField(const String &k, const String &v)
     tzOffsetSec = (long)v.toInt() * 60L; // minutes -> seconds
   else if (k == "emotion")
     setEmotion(v); // V2: left panel emotion (idle/happy/sleep/listening/...)
+  else if (k == "wxIcon")
+    wxIcon = v;
+  else if (k == "wxTemp")
+    wxTemp = v;
+  else if (k == "wxLoc")
+    wxLoc = v;
+  else if (k == "musTitle")
+    musTitle = v;
+  else if (k == "musArtist")
+    musArtist = v;
+  else if (k == "musPlaying")
+    musPlaying = (v == "true" || v == "1");
   else if (k == "weatherLocation")
     g.weatherLocation = v;
 }
