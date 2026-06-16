@@ -62,7 +62,7 @@
 // Firmware version of THIS build. The device self-updates over the air when
 // /roboface/firmware/version in Firebase differs from this. Bump it every
 // time you publish a new .bin to your GitHub release.
-#define FW_VERSION "2.4.0"
+#define FW_VERSION "2.4.1"
 
 // OLED — two 128x64 panels, EACH ON ITS OWN I2C BUS (no address jumper needed).
 //   LEFT  (eyes)      : SDA=D21, SCL=D22  (bus 1)  @ 0x3C
@@ -105,6 +105,8 @@ const unsigned long OTA_INTERVAL = 5UL * 60UL * 1000UL; // every 5 minutes
 bool forceOtaCheck = false;      // set when the app presses "Update now"
 bool needPlaylistFetch = true;   // fetch playlist via getString (stream escapes it)
 unsigned long lastBeat = 0;      // heartbeat / diagnostics timer
+unsigned long lastWeather = 0;   // weather auto-fetch timer
+bool needWeather = true;         // fetch weather on boot / city change
 
 // ---- Design space (matches RobotFaceCanvas.jsx) ----
 static const float DESIGN_W = 800.0f;
@@ -735,6 +737,11 @@ Emotion emotion = EMO_IDLE;
 unsigned long emotionStart = 0;
 float musicBeat = 0; // 0..1, set from Firebase music data in a later phase
 
+// emotion rotation: the device cycles through these (old "playlist" idea)
+Emotion emoList[16];
+int emoCount = 0;
+int emoIdx = -1;
+
 // blink state for the V2 engine
 unsigned long nextBlink2 = 3000;
 bool blinking2 = false;
@@ -754,10 +761,44 @@ Emotion emotionFromName(const String &s)
   return EMO_IDLE;
 }
 
+const char *emotionName(Emotion e)
+{
+  switch (e)
+  {
+    case EMO_HAPPY: return "happy";
+    case EMO_SLEEP: return "sleep";
+    case EMO_WAKE: return "wake";
+    case EMO_LISTENING: return "listening";
+    case EMO_THINKING: return "thinking";
+    case EMO_CURIOUS: return "curious";
+    case EMO_EXCITED: return "excited";
+    case EMO_LOVE: return "love";
+    case EMO_MUSIC: return "music";
+    default: return "idle";
+  }
+}
+
 void setEmotion(const String &name)
 {
   Emotion e = emotionFromName(name);
   if (e != emotion) { emotion = e; emotionStart = millis(); }
+}
+
+// Parse the CSV list of emotions the app sends ("idle,happy,sleep") to rotate.
+void parseEmotionList(const String &csv)
+{
+  emoCount = 0;
+  emoIdx = -1;
+  int start = 0;
+  while (start < (int)csv.length() && emoCount < 16)
+  {
+    int comma = csv.indexOf(',', start);
+    String tok = comma < 0 ? csv.substring(start) : csv.substring(start, comma);
+    tok.trim();
+    if (tok.length()) emoList[emoCount++] = emotionFromName(tok);
+    if (comma < 0) break;
+    start = comma + 1;
+  }
 }
 
 // music beat level 0..1 (placeholder gentle pulse until the music feed is wired)
@@ -939,6 +980,33 @@ void blitToPanels()
   }
 }
 
+// Cycle the emotion rotation (if the app set one). Wall-clock based so it's
+// steady; reports the current emotion back so the app preview follows.
+void stepEmotionRotation()
+{
+  if (emoCount == 0) return;
+  int idx = 0;
+  if (emoCount > 1)
+  {
+    time_t ep = time(nullptr);
+    unsigned long cs = cycleMs / 1000;
+    if (cs < 1) cs = 1;
+    idx = (ep > 100000) ? (int)((ep / cs) % emoCount)
+                        : (int)((millis() / (cycleMs ? cycleMs : 4000)) % emoCount);
+  }
+  if (idx != emoIdx)
+  {
+    emoIdx = idx;
+    emotion = emoList[idx];
+    emotionStart = millis();
+    if (firebaseReady && Firebase.ready())
+    {
+      String p = String("/") + ROOT_PATH + "/devices/" + DEVICE_ID + "/emotion";
+      Firebase.RTDB.setStringAsync(&fbdo, p.c_str(), emotionName(emotion));
+    }
+  }
+}
+
 // Top-level frame: render the whole scene once, then split to both panels.
 void drawFrame()
 {
@@ -946,6 +1014,7 @@ void drawFrame()
   if (millis() - lastFrame < 33) return; // ~30fps (I2C bandwidth limit for 2 panels)
   lastFrame = millis();
   unsigned long t = millis();
+  stepEmotionRotation();
   ui.fillScreen(0);
   drawDashboard(t); // right region
   drawEyes(t);      // left region
@@ -1083,6 +1152,8 @@ void applyField(const String &k, const String &v)
     tzOffsetSec = (long)v.toInt() * 60L; // minutes -> seconds
   else if (k == "emotion")
     setEmotion(v); // V2: left panel emotion (idle/happy/sleep/listening/...)
+  else if (k == "emotionList")
+    parseEmotionList(v); // V2: rotation list the device cycles through
   else if (k == "wxIcon")
     wxIcon = v;
   else if (k == "wxTemp")
@@ -1302,9 +1373,6 @@ void drawWifiSetupScreen()
 }
 
 // ---------------- Weather: auto-fetch from Open-Meteo (free, no API key) ------
-unsigned long lastWeather = 0;
-bool needWeather = true;
-
 String iconForCode(int c, int isDay)
 {
   if (c == 0) return isDay ? "sunny" : "night";

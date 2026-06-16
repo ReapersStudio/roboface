@@ -1601,6 +1601,17 @@ button {
   border-radius: 8px;
 }
 
+.emotion-eyes.sm {
+  height: 34px;
+  width: 60px;
+  flex: 0 0 auto;
+}
+
+.emotion-eyes.sm .emotion-thumb {
+  min-height: 34px !important;
+  height: 34px !important;
+}
+
 .emotion-label {
   display: flex;
   align-items: center;

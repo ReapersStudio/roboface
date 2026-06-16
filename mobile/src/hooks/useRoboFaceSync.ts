@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   DEFAULT_DEVICES,
   DEFAULT_FACES,
@@ -10,33 +10,38 @@ import {
   normalizeState,
   reactionToDeviceFields,
   toOrderedReactions,
-} from "../data/defaults.js";
-import { realtimeStore } from "../services/realtimeStore.js";
+} from '../data/defaults';
+import { realtimeStore } from '../services/realtimeStore';
 
 const nowStamp = () => Date.now();
 
 // Minutes east of UTC for a region (so the device clock matches the app exactly).
-const offsetMinutesFor = (tz) => {
+const offsetMinutesFor = (tz: string) => {
   try {
-    if (!tz || tz === "auto") {
-      return -new Date().getTimezoneOffset(); // browser local offset
+    if (!tz || tz === 'auto') {
+      return -new Date().getTimezoneOffset();
     }
     const d = new Date();
-    const utc = new Date(d.toLocaleString("en-US", { timeZone: "UTC" }));
-    const local = new Date(d.toLocaleString("en-US", { timeZone: tz }));
-    return Math.round((local - utc) / 60000);
+    const utc = new Date(d.toLocaleString('en-US', { timeZone: 'UTC' }));
+    const local = new Date(d.toLocaleString('en-US', { timeZone: tz }));
+    const result = Math.round((local.getTime() - utc.getTime()) / 60000);
+    if (Number.isNaN(result)) {
+      return -new Date().getTimezoneOffset();
+    }
+    return result;
   } catch {
     return -new Date().getTimezoneOffset();
   }
 };
-const slug = (value) =>
-  String(value || "")
+
+const slug = (value: string) =>
+  String(value || '')
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
 
-const createDevicePayload = (device, reaction) => ({
+const createDevicePayload = (device: any, reaction: any) => ({
   ...device,
   id: device.id || device.deviceId,
   deviceId: device.deviceId || device.id,
@@ -46,7 +51,7 @@ const createDevicePayload = (device, reaction) => ({
 });
 
 export function useRoboFaceSync() {
-  const [rawState, setRawState] = useState(null);
+  const [rawState, setRawState] = useState<any>(null);
   const [firebaseConnected, setFirebaseConnected] = useState(false);
   const seededRef = useRef(false);
 
@@ -54,12 +59,12 @@ export function useRoboFaceSync() {
   useEffect(() => realtimeStore.subscribeConnection(setFirebaseConnected), []);
 
   useEffect(() => {
-    const interval = window.setInterval(() => {
+    const interval = setInterval(() => {
       realtimeStore.touchController();
     }, 15000);
 
     realtimeStore.touchController();
-    return () => window.clearInterval(interval);
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -70,10 +75,10 @@ export function useRoboFaceSync() {
     seededRef.current = true;
 
     if (rawState.schemaVersion !== REACTION_SCHEMA_VERSION) {
-      realtimeStore.setValue("schemaVersion", REACTION_SCHEMA_VERSION);
-      realtimeStore.setValue("reactions", DEFAULT_REACTION_RECORD);
-      realtimeStore.setValue("faces", DEFAULT_FACES);
-      realtimeStore.updateValue("settings", {
+      realtimeStore.setValue('schemaVersion', REACTION_SCHEMA_VERSION);
+      realtimeStore.setValue('reactions', DEFAULT_REACTION_RECORD);
+      realtimeStore.setValue('faces', DEFAULT_FACES);
+      realtimeStore.updateValue('settings', {
         defaultFaceId: DEFAULT_SETTINGS.defaultFaceId,
         preview: DEFAULT_SETTINGS.preview,
         overlay: DEFAULT_SETTINGS.overlay,
@@ -81,30 +86,30 @@ export function useRoboFaceSync() {
     }
 
     if (!rawState.faces || !Object.keys(rawState.faces).length) {
-      realtimeStore.setValue("faces", DEFAULT_FACES);
+      realtimeStore.setValue('faces', DEFAULT_FACES);
     }
 
     if (!rawState.reactions || !Object.keys(rawState.reactions).length) {
-      realtimeStore.setValue("reactions", DEFAULT_REACTION_RECORD);
+      realtimeStore.setValue('reactions', DEFAULT_REACTION_RECORD);
     }
 
     if (!rawState.devices || !Object.keys(rawState.devices).length) {
-      realtimeStore.setValue("devices", DEFAULT_DEVICES);
+      realtimeStore.setValue('devices', DEFAULT_DEVICES);
     }
 
     if (!rawState.users || !Object.keys(rawState.users).length) {
-      realtimeStore.setValue("users", DEFAULT_USERS);
+      realtimeStore.setValue('users', DEFAULT_USERS);
     }
 
     if (!rawState.settings) {
-      realtimeStore.setValue("settings", DEFAULT_SETTINGS);
+      realtimeStore.setValue('settings', DEFAULT_SETTINGS);
     }
   }, [rawState]);
 
   const state = useMemo(() => normalizeState(rawState || {}), [rawState]);
 
   const syncReactionToDevice = useCallback(
-    (reaction, deviceId = state.control.currentDeviceId, source = "web") => {
+    (reaction: any, deviceId = state.control.currentDeviceId, source = 'mobile') => {
       if (!deviceId || !reaction) {
         return;
       }
@@ -121,53 +126,46 @@ export function useRoboFaceSync() {
 
   const selectionItems = useMemo(() => {
     const raw = state.settings.selection?.items;
-    // Firebase may return an array as an index-keyed object — normalize both.
     const items = Array.isArray(raw)
       ? raw
-      : raw && typeof raw === "object"
+      : raw && typeof raw === 'object'
         ? Object.values(raw)
         : null;
     if (items) {
-      return items.filter((item) => item && (item.t === "r" ? item.id : item.key));
+      return items.filter((item: any) => item && (item.t === 'r' ? item.id : item.key));
     }
-    // migrate from older reactionIds shape if present
     const rawIds = state.settings.selection?.reactionIds;
     const ids = Array.isArray(rawIds)
       ? rawIds
-      : rawIds && typeof rawIds === "object"
+      : rawIds && typeof rawIds === 'object'
         ? Object.values(rawIds)
         : null;
     if (ids) {
-      return ids.map((id) => ({ t: "r", id }));
+      return ids.map((id) => ({ t: 'r', id }));
     }
-    return state.orderedReactions.map((reaction) => ({ t: "r", id: reaction.id }));
+    return state.orderedReactions.map((reaction: any) => ({ t: 'r', id: reaction.id }));
   }, [state.settings.selection, state.orderedReactions]);
 
   const selectedReactions = useMemo(() => {
     const picked = selectionItems
-      .filter((item) => item.t === "r")
-      .map((item) => state.reactions[item.id])
+      .filter((item: any) => item.t === 'r')
+      .map((item: any) => state.reactions[item.id])
       .filter(Boolean);
     return picked.length ? picked : state.orderedReactions;
   }, [selectionItems, state.reactions, state.orderedReactions]);
 
-  // Single "now playing" cycler — the whole app (topbar + preview) reads this,
-  // so they always agree and mirror what the device cycles.
   const previewSlides = useMemo(() => {
-    const known = ["time", "date", "weather", "quote"];
-    return selectionItems.filter((it) =>
-      it.t === "r" ? state.reactions[it.id] : known.includes(it.key),
+    const known = ['time', 'date', 'weather', 'quote'];
+    return selectionItems.filter((it: any) =>
+      it.t === 'r' ? state.reactions[it.id] : known.includes(it.key),
     );
   }, [selectionItems, state.reactions]);
 
-  // Both the app and the device compute the current slide from the SAME
-  // wall-clock formula (epochSeconds / cycleSeconds) % count — so they stay in
-  // sync with no messaging or drift. A 1s tick re-renders to advance it.
   const cycleSec = Math.max(1, Math.floor(Number(state.settings.autoCycleInterval || 4000) / 1000));
   const [, setTick] = useState(0);
   useEffect(() => {
-    const id = window.setInterval(() => setTick((n) => n + 1), 250); // tight boundary alignment
-    return () => window.clearInterval(id);
+    const id = setInterval(() => setTick((n) => n + 1), 250);
+    return () => clearInterval(id);
   }, []);
 
   const safePreviewIndex = previewSlides.length
@@ -178,34 +176,31 @@ export function useRoboFaceSync() {
     index: safePreviewIndex,
     count: previewSlides.length,
     item: previewItem,
-    reaction: previewItem && previewItem.t === "r" ? state.reactions[previewItem.id] : null,
+    reaction: previewItem && previewItem.t === 'r' ? state.reactions[previewItem.id] : null,
     synced: Number.isFinite(Number(state.activeDevice?.curSlide)),
   };
 
-  // Denormalize the "In use" list into a compact playlist and push it to the
-  // device. The DEVICE cycles this on its own (faces + full-screen widgets),
-  // so it keeps running even when no app/phone is open.
-  const lastPlaylistRef = useRef("");
+  const lastPlaylistRef = useRef('');
   useEffect(() => {
     const deviceId = state.control.currentDeviceId;
     if (!deviceId) {
       return;
     }
 
-    const knownWidgets = ["time", "date", "weather", "quote"];
+    const knownWidgets = ['time', 'date', 'weather', 'quote'];
     const slides = selectionItems
-      .map((item) => {
-        if (item.t === "w") {
-          return knownWidgets.includes(item.key) ? { t: "w", wid: item.key } : null;
+      .map((item: any) => {
+        if (item.t === 'w') {
+          return knownWidgets.includes(item.key) ? { t: 'w', wid: item.key } : null;
         }
         const r = state.reactions[item.id];
         if (!r) {
           return null;
         }
         return {
-          t: "r",
+          t: 'r',
           code: Number(r.code),
-          feat: r.feature || "normal",
+          feat: r.feature || 'normal',
           ew: Number(r.eyeWidth),
           eh: Number(r.eyeHeight),
           lx: Number(r.leftX),
@@ -223,10 +218,10 @@ export function useRoboFaceSync() {
     const playlistJson = JSON.stringify(slides);
     const cycleMs = Number(state.settings.autoCycleInterval || 4000);
     const tzOffset = offsetMinutesFor(display.region);
-    const timeFormat = display.timeFormat || "24h";
+    const timeFormat = display.timeFormat || '24h';
     const signature = `${deviceId}|${cycleMs}|${tzOffset}|${timeFormat}|${playlistJson}`;
     if (signature === lastPlaylistRef.current) {
-      return; // nothing changed — avoid a write/update feedback loop
+      return;
     }
     lastPlaylistRef.current = signature;
 
@@ -240,13 +235,13 @@ export function useRoboFaceSync() {
   ]);
 
   const selectReaction = useCallback(
-    (reaction, deviceId = state.control.currentDeviceId) => {
-      realtimeStore.updateValue("control", {
+    (reaction: any, deviceId = state.control.currentDeviceId) => {
+      realtimeStore.updateValue('control', {
         currentDeviceId: deviceId,
         currentReactionId: reaction.id,
         currentReactionCode: reaction.code,
         updatedAt: nowStamp(),
-        source: "web",
+        source: 'mobile',
       });
       syncReactionToDevice(reaction, deviceId);
     },
@@ -254,27 +249,27 @@ export function useRoboFaceSync() {
   );
 
   const selectDevice = useCallback(
-    (deviceId) => {
-      realtimeStore.updateValue("control", {
+    (deviceId: string) => {
+      realtimeStore.updateValue('control', {
         currentDeviceId: deviceId,
         updatedAt: nowStamp(),
-        source: "web",
+        source: 'mobile',
       });
       syncReactionToDevice(state.currentReaction, deviceId);
     },
     [state.currentReaction, syncReactionToDevice],
   );
 
-  const toggleAutoCycle = useCallback((enabled) => {
-    realtimeStore.updateValue("control", {
+  const toggleAutoCycle = useCallback((enabled: boolean) => {
+    realtimeStore.updateValue('control', {
       autoCycle: enabled,
       updatedAt: nowStamp(),
-      source: "web",
+      source: 'mobile',
     });
   }, []);
 
   const upsertReaction = useCallback(
-    (reaction) => {
+    (reaction: any) => {
       const normalized = {
         ...reaction,
         reaction: reaction.reaction || slug(reaction.name) || reaction.id,
@@ -284,11 +279,11 @@ export function useRoboFaceSync() {
       realtimeStore.setValue(`reactions/${normalized.id}`, normalized);
 
       if (state.control.currentReactionId === normalized.id) {
-        realtimeStore.updateValue("control", {
+        realtimeStore.updateValue('control', {
           currentReactionId: normalized.id,
           currentReactionCode: normalized.code,
           updatedAt: nowStamp(),
-          source: "web",
+          source: 'mobile',
         });
         syncReactionToDevice(normalized);
       }
@@ -298,27 +293,27 @@ export function useRoboFaceSync() {
 
   const addReaction = useCallback(() => {
     const ordered = toOrderedReactions(state.reactions);
-    const nextCode = Math.max(...ordered.map((reaction) => reaction.code), 12) + 1;
+    const nextCode = Math.max(...ordered.map((reaction: any) => reaction.code), 12) + 1;
     const reaction = blankReaction(nextCode, ordered.length);
     realtimeStore.setValue(`reactions/${reaction.id}`, reaction);
-    realtimeStore.updateValue("control", {
+    realtimeStore.updateValue('control', {
       currentReactionId: reaction.id,
       currentReactionCode: reaction.code,
       updatedAt: nowStamp(),
-      source: "web",
+      source: 'mobile',
     });
     syncReactionToDevice(reaction);
   }, [state.reactions, syncReactionToDevice]);
 
   const duplicateReaction = useCallback(
-    (reactionId) => {
+    (reactionId: string) => {
       const source = state.reactions[reactionId];
       if (!source) {
         return;
       }
 
       const ordered = toOrderedReactions(state.reactions);
-      const nextCode = Math.max(...ordered.map((reaction) => reaction.code), 12) + 1;
+      const nextCode = Math.max(...ordered.map((reaction: any) => reaction.code), 12) + 1;
       const duplicated = {
         ...source,
         id: `${source.id}-copy-${Date.now()}`,
@@ -331,11 +326,11 @@ export function useRoboFaceSync() {
       };
 
       realtimeStore.setValue(`reactions/${duplicated.id}`, duplicated);
-      realtimeStore.updateValue("control", {
+      realtimeStore.updateValue('control', {
         currentReactionId: duplicated.id,
         currentReactionCode: duplicated.code,
         updatedAt: nowStamp(),
-        source: "web",
+        source: 'mobile',
       });
       syncReactionToDevice(duplicated);
     },
@@ -343,8 +338,8 @@ export function useRoboFaceSync() {
   );
 
   const removeReaction = useCallback(
-    (reactionId) => {
-      const nextList = state.orderedReactions.filter((reaction) => reaction.id !== reactionId);
+    (reactionId: string) => {
+      const nextList = state.orderedReactions.filter((reaction: any) => reaction.id !== reactionId);
       if (!nextList.length) {
         return;
       }
@@ -353,11 +348,11 @@ export function useRoboFaceSync() {
 
       if (state.control.currentReactionId === reactionId) {
         const fallback = nextList[0];
-        realtimeStore.updateValue("control", {
+        realtimeStore.updateValue('control', {
           currentReactionId: fallback.id,
           currentReactionCode: fallback.code,
           updatedAt: nowStamp(),
-          source: "web",
+          source: 'mobile',
         });
         syncReactionToDevice(fallback);
       }
@@ -365,44 +360,44 @@ export function useRoboFaceSync() {
     [state.control.currentReactionId, state.orderedReactions, syncReactionToDevice],
   );
 
-  const reorderReactions = useCallback((orderedReactions) => {
+  const reorderReactions = useCallback((orderedReactions: any[]) => {
     orderedReactions.forEach((reaction, order) => {
       realtimeStore.updateValue(`reactions/${reaction.id}`, { order });
     });
   }, []);
 
   const resetReactions = useCallback(() => {
-    realtimeStore.setValue("schemaVersion", REACTION_SCHEMA_VERSION);
-    realtimeStore.setValue("reactions", DEFAULT_REACTION_RECORD);
-    realtimeStore.setValue("faces", DEFAULT_FACES);
-    realtimeStore.updateValue("control", {
-      currentReactionId: "normal",
+    realtimeStore.setValue('schemaVersion', REACTION_SCHEMA_VERSION);
+    realtimeStore.setValue('reactions', DEFAULT_REACTION_RECORD);
+    realtimeStore.setValue('faces', DEFAULT_FACES);
+    realtimeStore.updateValue('control', {
+      currentReactionId: 'normal',
       currentReactionCode: 0,
       updatedAt: nowStamp(),
-      source: "web",
+      source: 'mobile',
     });
     syncReactionToDevice(DEFAULT_REACTION_RECORD.normal);
   }, [syncReactionToDevice]);
 
   const saveFaceTemplate = useCallback(
-    (name, reactionIds = state.orderedReactions.map((reaction) => reaction.id)) => {
+    (name: string, reactionIds = state.orderedReactions.map((reaction: any) => reaction.id)) => {
       const id = slug(name) || `face-${Date.now()}`;
       realtimeStore.setValue(`faces/${id}`, {
         id,
-        name: name || "Untitled Face",
+        name: name || 'Untitled Face',
         description: `${reactionIds.length} linked reactions`,
         reactionIds,
         createdAt: state.faces[id]?.createdAt || nowStamp(),
         updatedAt: nowStamp(),
       });
-      realtimeStore.updateValue("settings", { defaultFaceId: id });
+      realtimeStore.updateValue('settings', { defaultFaceId: id });
     },
     [state.faces, state.orderedReactions],
   );
 
   const addDevice = useCallback(
-    (name = "New ESP32 Face") => {
-      const id = `${slug(name) || "esp32-face"}-${Date.now().toString().slice(-5)}`;
+    (name = 'New ESP32 Face') => {
+      const id = `${slug(name) || 'esp32-face'}-${Date.now().toString().slice(-5)}`;
       const payload = createDevicePayload(
         {
           id,
@@ -410,25 +405,25 @@ export function useRoboFaceSync() {
           name,
           connected: false,
           online: false,
-          status: "Registered from web console",
+          status: 'Registered from mobile app',
           lastSeen: null,
-          ip: "--",
+          ip: '--',
           rssi: null,
-          firmware: "--",
+          firmware: '--',
         },
         state.currentReaction,
       );
       realtimeStore.setValue(`devices/${id}`, payload);
-      realtimeStore.updateValue("control", {
+      realtimeStore.updateValue('control', {
         currentDeviceId: id,
         updatedAt: nowStamp(),
-        source: "web",
+        source: 'mobile',
       });
     },
     [state.currentReaction],
   );
 
-  const updateDevice = useCallback((deviceId, patch) => {
+  const updateDevice = useCallback((deviceId: string, patch: any) => {
     realtimeStore.updateValue(`devices/${deviceId}`, {
       ...patch,
       updatedAt: nowStamp(),
@@ -436,18 +431,18 @@ export function useRoboFaceSync() {
   }, []);
 
   const removeDevice = useCallback(
-    (deviceId) => {
-      const nextDevices = state.orderedDevices.filter((device) => device.id !== deviceId);
+    (deviceId: string) => {
+      const nextDevices = state.orderedDevices.filter((device: any) => device.id !== deviceId);
       if (!nextDevices.length) {
         return;
       }
 
       realtimeStore.removeValue(`devices/${deviceId}`);
       if (state.control.currentDeviceId === deviceId) {
-        realtimeStore.updateValue("control", {
+        realtimeStore.updateValue('control', {
           currentDeviceId: nextDevices[0].id,
           updatedAt: nowStamp(),
-          source: "web",
+          source: 'mobile',
         });
       }
     },
@@ -455,7 +450,7 @@ export function useRoboFaceSync() {
   );
 
   const assignReactionToDevice = useCallback(
-    (deviceId, reactionId) => {
+    (deviceId: string, reactionId: string) => {
       const reaction = state.reactions[reactionId];
       if (!reaction) {
         return;
@@ -465,35 +460,27 @@ export function useRoboFaceSync() {
     [state.reactions, syncReactionToDevice],
   );
 
-  const importTemplate = useCallback((payload) => {
-    if (payload.faces) {
-      realtimeStore.updateValue("faces", payload.faces);
-    }
-    if (payload.reactions) {
-      realtimeStore.updateValue("reactions", payload.reactions);
-    }
-    if (payload.devices) {
-      realtimeStore.updateValue("devices", payload.devices);
-    }
-    if (payload.settings) {
-      realtimeStore.updateValue("settings", payload.settings);
-    }
+  const importTemplate = useCallback((payload: any) => {
+    if (payload.faces) realtimeStore.updateValue('faces', payload.faces);
+    if (payload.reactions) realtimeStore.updateValue('reactions', payload.reactions);
+    if (payload.devices) realtimeStore.updateValue('devices', payload.devices);
+    if (payload.settings) realtimeStore.updateValue('settings', payload.settings);
   }, []);
 
-  const updateOverlay = useCallback((patch) => {
-    realtimeStore.updateValue("settings/overlay", patch);
+  const updateOverlay = useCallback((patch: any) => {
+    realtimeStore.updateValue('settings/overlay', patch);
   }, []);
 
-  const updateTransition = useCallback((patch) => {
-    realtimeStore.updateValue("settings/transition", patch);
+  const updateTransition = useCallback((patch: any) => {
+    realtimeStore.updateValue('settings/transition', patch);
   }, []);
 
-  const updatePreview = useCallback((patch) => {
-    realtimeStore.updateValue("settings/preview", patch);
+  const updatePreview = useCallback((patch: any) => {
+    realtimeStore.updateValue('settings/preview', patch);
   }, []);
 
   const updateDisplay = useCallback(
-    (patch) => {
+    (patch: any) => {
       const current = state.settings.display || {};
       const currentWidgets = current.widgets || {};
       const patchWidgets = patch.widgets || {};
@@ -502,18 +489,18 @@ export function useRoboFaceSync() {
         nextWidgets[key] = { ...currentWidgets[key], ...patchWidgets[key] };
       });
       const next = { ...current, ...patch, widgets: nextWidgets };
-      const w = (key) => nextWidgets[key] || {};
+      const w = (key: string) => nextWidgets[key] || {};
 
-      realtimeStore.updateValue("settings/display", { ...patch, widgets: nextWidgets });
+      realtimeStore.updateValue('settings/display', { ...patch, widgets: nextWidgets });
       realtimeStore.updateValue(`devices/${state.control.currentDeviceId}`, {
-        widgetTime: Boolean(w("time").enabled),
-        widgetTimeOrder: Number(w("time").order ?? 1),
-        widgetDate: Boolean(w("date").enabled),
-        widgetDateOrder: Number(w("date").order ?? 2),
-        widgetWeather: Boolean(w("weather").enabled),
-        widgetWeatherOrder: Number(w("weather").order ?? 3),
-        widgetQuote: Boolean(w("quote").enabled),
-        widgetQuoteOrder: Number(w("quote").order ?? 4),
+        widgetTime: Boolean(w('time').enabled),
+        widgetTimeOrder: Number(w('time').order ?? 1),
+        widgetDate: Boolean(w('date').enabled),
+        widgetDateOrder: Number(w('date').order ?? 2),
+        widgetWeather: Boolean(w('weather').enabled),
+        widgetWeatherOrder: Number(w('weather').order ?? 3),
+        widgetQuote: Boolean(w('quote').enabled),
+        widgetQuoteOrder: Number(w('quote').order ?? 4),
         timeFormat: next.timeFormat,
         region: next.region,
         weatherLocation: next.weatherLocation,
@@ -523,22 +510,20 @@ export function useRoboFaceSync() {
     [state.settings.display, state.control.currentDeviceId],
   );
 
-  // Single source of truth for the "In use" list (reactions + widgets, ordered).
-  // Writing it also derives widget enabled/order and mirrors them to the device.
   const setSelectionItems = useCallback(
-    (items) => {
+    (items: any[]) => {
       const clean = (items || []).filter(Boolean);
-      realtimeStore.updateValue("settings/selection", { items: clean });
+      realtimeStore.updateValue('settings/selection', { items: clean });
 
-      const widgetKeys = ["time", "date", "weather", "quote"];
-      const widgetItems = clean.filter((item) => item.t === "w");
-      const widgets = {};
+      const widgetKeys = ['time', 'date', 'weather', 'quote'];
+      const widgetItems = clean.filter((item) => item.t === 'w');
+      const widgets: any = {};
       widgetKeys.forEach((key) => {
         const rank = widgetItems.findIndex((item) => item.key === key);
         widgets[key] = { enabled: rank >= 0, order: rank >= 0 ? rank + 1 : 9 };
       });
 
-      realtimeStore.updateValue("settings/display", { widgets });
+      realtimeStore.updateValue('settings/display', { widgets });
       realtimeStore.updateValue(`devices/${state.control.currentDeviceId}`, {
         widgetTime: widgets.time.enabled,
         widgetTimeOrder: widgets.time.order,
@@ -551,8 +536,7 @@ export function useRoboFaceSync() {
         updatedAt: nowStamp(),
       });
 
-      // if the active reaction was removed, switch to the first remaining one
-      const reactionIds = clean.filter((item) => item.t === "r").map((item) => item.id);
+      const reactionIds = clean.filter((item) => item.t === 'r').map((item) => item.id);
       if (!reactionIds.includes(state.control.currentReactionId) && reactionIds.length) {
         const fallback = state.reactions[reactionIds[0]];
         if (fallback) {
@@ -565,9 +549,7 @@ export function useRoboFaceSync() {
 
   const requestDeviceUpdate = useCallback(
     (deviceId = state.control.currentDeviceId) => {
-      if (!deviceId) {
-        return;
-      }
+      if (!deviceId) return;
       realtimeStore.updateValue(`devices/${deviceId}`, {
         fwUpdateNow: true,
         updatedAt: nowStamp(),
@@ -576,12 +558,9 @@ export function useRoboFaceSync() {
     [state.control.currentDeviceId],
   );
 
-  // Jump the device's slideshow to a specific slide (used by "Use").
   const requestJump = useCallback(
-    (index, deviceId = state.control.currentDeviceId) => {
-      if (!deviceId || index == null || index < 0) {
-        return;
-      }
+    (index: number, deviceId = state.control.currentDeviceId) => {
+      if (!deviceId || index == null || index < 0) return;
       realtimeStore.updateValue(`devices/${deviceId}`, {
         jumpTo: index,
         updatedAt: nowStamp(),
@@ -590,48 +569,12 @@ export function useRoboFaceSync() {
     [state.control.currentDeviceId],
   );
 
-  // V2: set the robot's emotion (left-panel eyes) — writes the `emotion` field.
-  const setEmotion = useCallback(
-    (emotion, deviceId = state.control.currentDeviceId) => {
-      if (!deviceId || !emotion) {
-        return;
-      }
-      realtimeStore.updateValue(`devices/${deviceId}`, { emotion, updatedAt: nowStamp() });
-    },
-    [state.control.currentDeviceId],
-  );
-
-  // V2: set the emotion ROTATION the device cycles through (CSV of emotion ids).
-  const setEmotionRotation = useCallback(
-    (ids, deviceId = state.control.currentDeviceId) => {
-      if (!deviceId) {
-        return;
-      }
-      realtimeStore.updateValue(`devices/${deviceId}`, {
-        emotionList: (ids || []).join(","),
-        updatedAt: nowStamp(),
-      });
-    },
-    [state.control.currentDeviceId],
-  );
-
-  // V2: set right-panel dashboard fields (weather / now-playing).
-  const updateDeviceFields = useCallback(
-    (patch, deviceId = state.control.currentDeviceId) => {
-      if (!deviceId || !patch) {
-        return;
-      }
-      realtimeStore.updateValue(`devices/${deviceId}`, { ...patch, updatedAt: nowStamp() });
-    },
-    [state.control.currentDeviceId],
-  );
-
-  const updateSettings = useCallback((patch) => {
-    realtimeStore.updateValue("settings", patch);
+  const updateSettings = useCallback((patch: any) => {
+    realtimeStore.updateValue('settings', patch);
   }, []);
 
-  const updateFirebaseSettings = useCallback((patch) => {
-    realtimeStore.updateValue("settings/firebase", patch);
+  const updateFirebaseSettings = useCallback((patch: any) => {
+    realtimeStore.updateValue('settings/firebase', patch);
   }, []);
 
   return {
@@ -665,9 +608,6 @@ export function useRoboFaceSync() {
       setSelectionItems,
       requestDeviceUpdate,
       requestJump,
-      setEmotion,
-      setEmotionRotation,
-      updateDeviceFields,
       updateSettings,
       updateFirebaseSettings,
     },
