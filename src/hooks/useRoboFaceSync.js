@@ -601,6 +601,17 @@ export function useRoboFaceSync() {
     [state.control.currentDeviceId],
   );
 
+  // V2: set right-panel dashboard fields (weather / now-playing).
+  const updateDeviceFields = useCallback(
+    (patch, deviceId = state.control.currentDeviceId) => {
+      if (!deviceId || !patch) {
+        return;
+      }
+      realtimeStore.updateValue(`devices/${deviceId}`, { ...patch, updatedAt: nowStamp() });
+    },
+    [state.control.currentDeviceId],
+  );
+
   const updateSettings = useCallback((patch) => {
     realtimeStore.updateValue("settings", patch);
   }, []);
@@ -641,6 +652,7 @@ export function useRoboFaceSync() {
       requestDeviceUpdate,
       requestJump,
       setEmotion,
+      updateDeviceFields,
       updateSettings,
       updateFirebaseSettings,
     },
