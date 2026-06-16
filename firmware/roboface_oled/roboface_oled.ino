@@ -83,6 +83,12 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);   // LEFT (eye
 Adafruit_SSD1306 displayR(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);  // RIGHT (dashboard)
 bool hasRight = false; // set true if the 0x3D panel is detected
 
+// V2 emotion set — declared up top so Arduino's auto-prototypes see the type.
+enum Emotion {
+  EMO_IDLE, EMO_HAPPY, EMO_SLEEP, EMO_WAKE, EMO_LISTENING,
+  EMO_THINKING, EMO_CURIOUS, EMO_EXCITED, EMO_LOVE, EMO_MUSIC
+};
+
 FirebaseData stream;
 FirebaseData fbdo; // for non-stream reads (OTA version/url)
 FirebaseAuth auth;
@@ -721,10 +727,6 @@ void reportCurSlide()
 
 #define EYE_CORNER 10 // rounded-rect eye corner radius (Nothing-OS style)
 
-enum Emotion {
-  EMO_IDLE, EMO_HAPPY, EMO_SLEEP, EMO_WAKE, EMO_LISTENING,
-  EMO_THINKING, EMO_CURIOUS, EMO_EXCITED, EMO_LOVE, EMO_MUSIC
-};
 Emotion emotion = EMO_IDLE;
 unsigned long emotionStart = 0;
 float musicBeat = 0; // 0..1, set from Firebase music data in a later phase
