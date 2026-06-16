@@ -62,12 +62,13 @@
 // Firmware version of THIS build. The device self-updates over the air when
 // /roboface/firmware/version in Firebase differs from this. Bump it every
 // time you publish a new .bin to your GitHub release.
-#define FW_VERSION "1.5.2"
+#define FW_VERSION "2.0.0"
 
-// OLED
+// OLED — two 128x64 panels on the same I2C bus.
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
-#define OLED_ADDR 0x3C
+#define OLED_ADDR 0x3C   // LEFT  panel = robot eyes / emotions
+#define OLED_ADDR_R 0x3D // RIGHT panel = smart dashboard
 
 // Eye size. 1.0 = whole 800x480 design fits (small eyes, lots of margin).
 // Higher = zoomed-in / bigger eyes. ~1.7 fills the panel; try 1.5 - 2.2.
@@ -78,7 +79,9 @@
 #define EYE_RADIUS 16.0f
 // ======================================================
 
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);   // LEFT (eyes)
+Adafruit_SSD1306 displayR(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);  // RIGHT (dashboard)
+bool hasRight = false; // set true if the 0x3D panel is detected
 
 FirebaseData stream;
 FirebaseData fbdo; // for non-stream reads (OTA version/url)
@@ -711,51 +714,141 @@ void reportCurSlide()
   Firebase.RTDB.setIntAsync(&fbdo, p.c_str(), slideIdx); // async = no render stall
 }
 
-// Top-level: cycle the playlist on our own and draw the current slide.
+// ============================================================================
+//  V2 — Dual-display experience.  LEFT = eyes/emotions, RIGHT = dashboard.
+//  (Backend untouched: WiFi, Firebase, OTA, sync all unchanged.)
+// ============================================================================
+
+#define EYE_CORNER 10 // rounded-rect eye corner radius (Nothing-OS style)
+
+enum Emotion {
+  EMO_IDLE, EMO_HAPPY, EMO_SLEEP, EMO_WAKE, EMO_LISTENING,
+  EMO_THINKING, EMO_CURIOUS, EMO_EXCITED, EMO_LOVE, EMO_MUSIC
+};
+Emotion emotion = EMO_IDLE;
+unsigned long emotionStart = 0;
+float musicBeat = 0; // 0..1, set from Firebase music data in a later phase
+
+// blink state for the V2 engine
+unsigned long nextBlink2 = 3000;
+bool blinking2 = false;
+unsigned long blinkStart2 = 0;
+
+Emotion emotionFromName(const String &s)
+{
+  if (s == "happy") return EMO_HAPPY;
+  if (s == "sleep") return EMO_SLEEP;
+  if (s == "wake") return EMO_WAKE;
+  if (s == "listening") return EMO_LISTENING;
+  if (s == "thinking") return EMO_THINKING;
+  if (s == "curious") return EMO_CURIOUS;
+  if (s == "excited") return EMO_EXCITED;
+  if (s == "love") return EMO_LOVE;
+  if (s == "music") return EMO_MUSIC;
+  return EMO_IDLE;
+}
+
+void setEmotion(const String &name)
+{
+  Emotion e = emotionFromName(name);
+  if (e != emotion) { emotion = e; emotionStart = millis(); }
+}
+
+// music beat level 0..1 (placeholder gentle pulse until the music feed is wired)
+float beatLevel() { return musicBeat > 0 ? musicBeat : (sinf(millis() / 220.0f) + 1) * 0.5f; }
+
+// one rounded-rect eye; height clamped so blinks stay a thin line, not gone
+static void drawEye(float cx, float cy, float w, float h)
+{
+  int iw = (int)lroundf(w);
+  int ih = (int)lroundf(max(2.0f, h));
+  int r = min(min(EYE_CORNER, iw / 2), ih / 2);
+  display.fillRoundRect((int)lroundf(cx - iw / 2.0f), (int)lroundf(cy - ih / 2.0f), iw, ih, r, SSD1306_WHITE);
+}
+
+// LEFT panel — render the current emotion's animated eyes.
+void drawEyes(unsigned long t)
+{
+  const float w = 34, h = 40, gap = 16, cy = 32;
+  float lcx = SCREEN_WIDTH / 2.0f - gap / 2 - w / 2;
+  float rcx = SCREEN_WIDTH / 2.0f + gap / 2 + w / 2;
+  float lw = w, lh = h, rw = w, rh = h, loff = 0, roff = 0, lxo = 0, rxo = 0;
+  unsigned long e = t - emotionStart;
+
+  switch (emotion)
+  {
+    case EMO_IDLE:      loff = roff = sinf(t / 700.0f) * 2.0f; break;
+    case EMO_HAPPY:     loff = roff = -fabsf(sinf(t / 180.0f)) * 6.0f; lh = rh = h * 0.8f; break;
+    case EMO_SLEEP:     lh = rh = 4; loff = roff = h / 2 - 2; break;
+    case EMO_WAKE: { float k = constrain(e / 600.0f, 0.0f, 1.0f); lh = rh = 4 + (h - 4) * k; } break;
+    case EMO_LISTENING: lw = rw = w * 1.12f; lh = rh = h * 1.12f; break;
+    case EMO_THINKING:  lxo = 8; rxo = -8; loff = roff = -6; break;
+    case EMO_CURIOUS:   lh = h * 1.2f; lw = w * 1.1f; rh = h * 0.85f; rw = w * 0.9f; break;
+    case EMO_EXCITED:   loff = roff = -fabsf(sinf(t / 90.0f)) * 8.0f; break;
+    case EMO_LOVE: { float p = (sinf(t / 350.0f) + 1) * 0.5f; lw = rw = w * (0.9f + 0.2f * p); lh = rh = h * (0.9f + 0.2f * p); } break;
+    case EMO_MUSIC: { float b = beatLevel(); lh = rh = h * (0.85f + 0.4f * b); lw = rw = w * (0.9f + 0.15f * b); } break;
+  }
+
+  float bf = 1.0f;
+  bool canBlink = (emotion != EMO_SLEEP && emotion != EMO_WAKE);
+  if (canBlink && t > nextBlink2 && !blinking2) { blinking2 = true; blinkStart2 = t; nextBlink2 = t + (unsigned long)rr(2500, 6000); }
+  if (blinking2)
+  {
+    unsigned long be = t - blinkStart2; const float d = 140;
+    if (be < d / 2) bf = 1.0f - (be / (d / 2)) * 0.92f;
+    else if (be < d) bf = 0.08f + ((be - d / 2) / (d / 2)) * 0.92f;
+    else blinking2 = false;
+  }
+
+  display.clearDisplay();
+  drawEye(lcx + lxo, cy + loff, lw, lh * bf);
+  drawEye(rcx + rxo, cy + roff, rw, rh * bf);
+  display.display();
+}
+
+// RIGHT panel — Phase 1 dashboard: big clock + date (weather/music in Phase 2).
+void drawDashboard(unsigned long t)
+{
+  if (!hasRight) return;
+  applyTimezoneIfChanged();
+  struct tm tm;
+  bool have = localNow(tm);
+  int16_t x1, y1; uint16_t tw, th;
+
+  displayR.clearDisplay();
+  displayR.setTextColor(SSD1306_WHITE);
+
+  if (have)
+  {
+    static const char *wd[] = {"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
+    static const char *mo[] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
+    char d[20];
+    snprintf(d, sizeof(d), "%s %s %d", wd[tm.tm_wday], mo[tm.tm_mon], tm.tm_mday);
+    displayR.setTextSize(1);
+    displayR.getTextBounds(d, 0, 0, &x1, &y1, &tw, &th);
+    displayR.setCursor((SCREEN_WIDTH - tw) / 2, 6);
+    displayR.print(d);
+  }
+
+  String hhmm = have ? widgetTimeText(tm) : String("--:--");
+  displayR.setTextSize(2);
+  displayR.getTextBounds(hhmm, 0, 0, &x1, &y1, &tw, &th);
+  displayR.setCursor((SCREEN_WIDTH - tw) / 2, 26);
+  displayR.print(hhmm);
+
+  displayR.setTextSize(1);
+  displayR.setCursor(0, 54);
+  displayR.print("Kiibo v2");
+  displayR.display();
+}
+
+// Top-level frame: eyes every loop (smooth), dashboard ~2 Hz (clock).
 void drawFrame()
 {
   unsigned long t = millis();
-
-  if (slideCount == 0)
-  {
-    renderFace(t); // no playlist yet — show whatever the last reaction was
-    return;
-  }
-
-  if (slideCount > 1)
-  {
-    int nextIdx = slideIdx;
-    time_t epoch = time(nullptr);
-    unsigned long cycleSec = cycleMs / 1000;
-    if (cycleSec < 1) cycleSec = 1;
-
-    if (epoch > 100000)
-    {
-      // wall-clock index — identical formula in the app, so they stay in sync
-      nextIdx = (int)((epoch / cycleSec) % slideCount);
-    }
-    else if (millis() - slideStart > cycleMs)
-    {
-      // NTP not ready yet — fall back to a local timer
-      nextIdx = (slideIdx + 1) % slideCount;
-      slideStart = millis();
-    }
-
-    if (nextIdx != slideIdx)
-    {
-      slideIdx = nextIdx;
-      reportCurSlide();
-    }
-  }
-
-  Slide &s = slides[slideIdx];
-  if (s.widget)
-    renderWidgetFull(s.w, t);
-  else
-  {
-    applySlide(s);
-    renderFace(t);
-  }
+  drawEyes(t);
+  static unsigned long lastDash = 0;
+  if (millis() - lastDash > 500) { lastDash = millis(); drawDashboard(t); }
 }
 
 // Parse the playlist JSON the app sends into our local slides[] array.
@@ -887,6 +980,8 @@ void applyField(const String &k, const String &v)
     g.region = v;
   else if (k == "tzOffset")
     tzOffsetSec = (long)v.toInt() * 60L; // minutes -> seconds
+  else if (k == "emotion")
+    setEmotion(v); // V2: left panel emotion (idle/happy/sleep/listening/...)
   else if (k == "weatherLocation")
     g.weatherLocation = v;
 }
@@ -1125,6 +1220,10 @@ void setup()
     for (;;)
       delay(1000);
   }
+  // Second panel (right = dashboard). Optional — runs single-panel if absent.
+  hasRight = displayR.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR_R);
+  Serial.printf("Right panel (0x3D): %s\n", hasRight ? "found" : "not found");
+
   display.clearDisplay();
   display.setTextColor(SSD1306_WHITE);
   display.setCursor(0, 0);
@@ -1133,6 +1232,15 @@ void setup()
   display.println(FW_VERSION);
   display.println("connecting...");
   display.display();
+  if (hasRight)
+  {
+    displayR.clearDisplay();
+    displayR.setTextColor(SSD1306_WHITE);
+    displayR.setCursor(0, 0);
+    displayR.println("Dashboard");
+    displayR.println("starting...");
+    displayR.display();
+  }
 
   // design -> screen transform (same fit/center as the web canvas, *0.94)
   SCALE = min((float)SCREEN_WIDTH / DESIGN_W, (float)SCREEN_HEIGHT / DESIGN_H) * EYE_ZOOM;
