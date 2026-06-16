@@ -62,7 +62,7 @@
 // Firmware version of THIS build. The device self-updates over the air when
 // /roboface/firmware/version in Firebase differs from this. Bump it every
 // time you publish a new .bin to your GitHub release.
-#define FW_VERSION "2.3.0"
+#define FW_VERSION "2.4.0"
 
 // OLED — two 128x64 panels, EACH ON ITS OWN I2C BUS (no address jumper needed).
 //   LEFT  (eyes)      : SDA=D21, SCL=D22  (bus 1)  @ 0x3C
@@ -1088,7 +1088,9 @@ void applyField(const String &k, const String &v)
   else if (k == "wxTemp")
     wxTemp = v;
   else if (k == "wxLoc")
-    wxLoc = v;
+  {
+    if (v != wxLoc) { wxLoc = v; needWeather = true; } // re-fetch when city changes
+  }
   else if (k == "musTitle")
     musTitle = v;
   else if (k == "musArtist")
@@ -1299,6 +1301,68 @@ void drawWifiSetupScreen()
   display.display();
 }
 
+// ---------------- Weather: auto-fetch from Open-Meteo (free, no API key) ------
+unsigned long lastWeather = 0;
+bool needWeather = true;
+
+String iconForCode(int c, int isDay)
+{
+  if (c == 0) return isDay ? "sunny" : "night";
+  if (c <= 3) return "cloudy";
+  if (c >= 95) return "storm";
+  if ((c >= 51 && c <= 67) || (c >= 80 && c <= 82)) return "rain";
+  return "cloudy";
+}
+
+// Geocode the city -> lat/lon, then read current temperature + condition.
+// Sets wxTemp/wxIcon locally AND writes them to Firebase so the app shows them.
+void fetchWeather()
+{
+  if (wxLoc.length() == 0) return;
+  WiFiClientSecure c;
+  c.setInsecure();
+  HTTPClient http;
+  http.setTimeout(6000);
+
+  String loc = wxLoc; loc.replace(" ", "%20");
+  String gurl = "https://geocoding-api.open-meteo.com/v1/search?count=1&name=" + loc;
+  float lat = 1000, lon = 1000;
+  if (http.begin(c, gurl) && http.GET() == 200)
+  {
+    DynamicJsonDocument doc(4096);
+    if (!deserializeJson(doc, http.getString()))
+    {
+      lat = doc["results"][0]["latitude"] | 1000.0;
+      lon = doc["results"][0]["longitude"] | 1000.0;
+    }
+  }
+  http.end();
+  if (lat > 900) { Serial.println("weather: geocode failed"); return; }
+
+  String furl = "https://api.open-meteo.com/v1/forecast?current=temperature_2m,weather_code,is_day&latitude=" +
+                String(lat, 4) + "&longitude=" + String(lon, 4);
+  if (http.begin(c, furl) && http.GET() == 200)
+  {
+    DynamicJsonDocument fd(2048);
+    if (!deserializeJson(fd, http.getString()))
+    {
+      float temp = fd["current"]["temperature_2m"] | -999.0;
+      int code = fd["current"]["weather_code"] | -1;
+      int isDay = fd["current"]["is_day"] | 1;
+      if (temp > -900)
+      {
+        wxTemp = String((int)lroundf(temp));
+        wxIcon = iconForCode(code, isDay);
+        Serial.printf("weather: %sC %s\n", wxTemp.c_str(), wxIcon.c_str());
+        String base = String("/") + ROOT_PATH + "/devices/" + DEVICE_ID;
+        Firebase.RTDB.setStringAsync(&fbdo, (base + "/wxTemp").c_str(), wxTemp);
+        Firebase.RTDB.setStringAsync(&fbdo, (base + "/wxIcon").c_str(), wxIcon);
+      }
+    }
+  }
+  http.end();
+}
+
 // Connect using saved WiFi; if none/unreachable, open the "Kiibo" setup hotspot
 // so the customer enters their own WiFi from a phone — no hardcoded credentials.
 void connectWiFi()
@@ -1408,6 +1472,14 @@ void loop()
       Firebase.RTDB.setIntAsync(&fbdo, (b + "/slideCount").c_str(), slideCount);
       Firebase.RTDB.setIntAsync(&fbdo, (b + "/uptime").c_str(), (int)(millis() / 1000));
       Firebase.RTDB.setBoolAsync(&fbdo, (b + "/online").c_str(), true);
+    }
+
+    // Auto-fetch weather (on city change, then every 15 min). Blocks briefly.
+    if (needWeather || millis() - lastWeather > 900000UL)
+    {
+      needWeather = false;
+      lastWeather = millis();
+      fetchWeather();
     }
 
     // Fetch the playlist cleanly (the stream's copy is escaped JSON)

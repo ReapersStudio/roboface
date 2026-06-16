@@ -1619,6 +1619,35 @@ button {
   font-size: 0.72rem;
 }
 
+.auto-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  padding: 11px 13px;
+}
+
+.auto-row svg {
+  color: var(--accent);
+  flex: 0 0 auto;
+}
+
+.auto-row strong {
+  display: block;
+  color: var(--text);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.auto-row small {
+  display: block;
+  margin-top: 2px;
+  color: var(--faint);
+  font-size: 0.74rem;
+}
+
 /* ---------- Settings page ---------- */
 
 .update-card {

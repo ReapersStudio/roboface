@@ -1,16 +1,8 @@
-import { Check } from "lucide-react";
-import { Panel, SelectField, TextField, Toggle } from "../components/Controls.jsx";
+import { Check, CloudSun, Music } from "lucide-react";
+import { Panel, TextField } from "../components/Controls.jsx";
 import { EmotionEyes } from "../components/EmotionEyes.jsx";
 import { DashboardPreview } from "../components/DashboardPreview.jsx";
 import { EMOTIONS } from "../data/defaults.js";
-
-const WEATHER_ICONS = [
-  { value: "sunny", label: "Sunny" },
-  { value: "cloudy", label: "Cloudy" },
-  { value: "rain", label: "Rain" },
-  { value: "storm", label: "Storm" },
-  { value: "night", label: "Night" },
-];
 
 export function Emotions({ state }) {
   const { actions } = state;
@@ -60,26 +52,38 @@ export function Emotions({ state }) {
       </div>
 
       <Panel title="Dashboard" className="emotions-right">
-        <p className="microcopy" style={{ marginBottom: 10 }}>What shows on the right panel. Time/date come from the clock automatically.</p>
+        <p className="microcopy" style={{ marginBottom: 12 }}>
+          The dashboard updates by itself. You only set your city once.
+        </p>
 
-        <span className="box-subhead">Weather</span>
+        <span className="box-subhead">Weather location</span>
         <div className="stack" style={{ marginBottom: 14 }}>
-          <SelectField label="Condition" value={device.wxIcon || "sunny"} options={WEATHER_ICONS}
-            onChange={(wxIcon) => actions.updateDeviceFields({ wxIcon })} />
-          <TextField label="Temperature (°C)" value={device.wxTemp || ""} type="number"
-            onChange={(wxTemp) => actions.updateDeviceFields({ wxTemp: String(wxTemp) })} />
-          <TextField label="Location" value={device.wxLoc || ""}
-            onChange={(wxLoc) => actions.updateDeviceFields({ wxLoc })} placeholder="Colombo" />
+          <TextField
+            label="Your city"
+            value={device.wxLoc || ""}
+            onChange={(wxLoc) => actions.updateDeviceFields({ wxLoc })}
+            placeholder="Colombo"
+          />
+          <div className="auto-row">
+            <CloudSun size={18} />
+            <div>
+              <strong>{device.wxTemp ? `${device.wxTemp}°C · ${device.wxIcon || "—"}` : "Fetching…"}</strong>
+              <small>Live weather, fetched automatically</small>
+            </div>
+          </div>
         </div>
 
         <span className="box-subhead">Now playing</span>
-        <div className="stack">
-          <TextField label="Song title" value={device.musTitle || ""}
-            onChange={(musTitle) => actions.updateDeviceFields({ musTitle })} placeholder="Kaavaalaa" />
-          <TextField label="Artist" value={device.musArtist || ""}
-            onChange={(musArtist) => actions.updateDeviceFields({ musArtist })} placeholder="Aniruth Ravichandar" />
-          <Toggle label="Playing" description="Show the now-playing line (scrolls if long)"
-            checked={Boolean(device.musPlaying)} onChange={(musPlaying) => actions.updateDeviceFields({ musPlaying })} />
+        <div className="auto-row">
+          <Music size={18} />
+          <div>
+            <strong>
+              {device.musPlaying && device.musTitle
+                ? `${device.musTitle}${device.musArtist ? " — " + device.musArtist : ""}`
+                : "Nothing playing"}
+            </strong>
+            <small>Comes from your music app automatically</small>
+          </div>
         </div>
       </Panel>
     </div>
