@@ -536,18 +536,27 @@ export const blankReaction = (nextCode, order) => ({
 });
 
 export const toOrderedReactions = (record) =>
-  Object.values(record || {}).sort((a, b) => {
-    if ((a.order ?? 0) === (b.order ?? 0)) {
-      return (a.code ?? 0) - (b.code ?? 0);
-    }
-    return (a.order ?? 0) - (b.order ?? 0);
-  });
+  Object.values(record || {})
+    .filter((r) => r && typeof r === "object")
+    .sort((a, b) => {
+      if ((a.order ?? 0) === (b.order ?? 0)) {
+        return (a.code ?? 0) - (b.code ?? 0);
+      }
+      return (a.order ?? 0) - (b.order ?? 0);
+    });
+
+// null-safe label so a stray/partial record can never crash the sort
+const orderLabel = (x) => String(x?.name ?? x?.id ?? "");
 
 export const toOrderedDevices = (record) =>
-  Object.values(record || {}).sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
+  Object.values(record || {})
+    .filter((d) => d && typeof d === "object")
+    .sort((a, b) => orderLabel(a).localeCompare(orderLabel(b)));
 
 export const toOrderedFaces = (record) =>
-  Object.values(record || {}).sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
+  Object.values(record || {})
+    .filter((f) => f && typeof f === "object")
+    .sort((a, b) => orderLabel(a).localeCompare(orderLabel(b)));
 
 const deepMerge = (base, incoming) => {
   if (!incoming || typeof incoming !== "object") {
