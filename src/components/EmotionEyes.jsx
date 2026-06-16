@@ -79,6 +79,11 @@ export function EmotionEyes({ emotion = "idle", className = "" }) {
         else bs.on = false;
       }
 
+      // blink-morph transition into the new emotion (matches firmware EMO_TRANS_MS)
+      let env = 1;
+      if (e < 320) env = 0.06 + 0.94 * Math.abs((e / 320) * 2 - 1);
+      bf *= env;
+
       ctx.save();
       ctx.translate(ox, oy);
       ctx.scale(scale, scale);

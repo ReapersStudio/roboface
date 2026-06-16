@@ -36,7 +36,7 @@ export function Emotions({ state }) {
           <div className="dual-preview">
             <EmotionEyes emotion={current} className="dual-half" />
             <span className="dual-seam" />
-            <DashboardPreview device={device} settings={state.settings} className="dual-half" />
+            <DashboardPreview device={device} settings={state.settings} emotion={current} className="dual-half" />
           </div>
         </Panel>
 

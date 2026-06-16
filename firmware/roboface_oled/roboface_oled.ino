@@ -62,7 +62,7 @@
 // Firmware version of THIS build. The device self-updates over the air when
 // /roboface/firmware/version in Firebase differs from this. Bump it every
 // time you publish a new .bin to your GitHub release.
-#define FW_VERSION "2.4.1"
+#define FW_VERSION "2.4.2"
 
 // OLED — two 128x64 panels, EACH ON ITS OWN I2C BUS (no address jumper needed).
 //   LEFT  (eyes)      : SDA=D21, SCL=D22  (bus 1)  @ 0x3C
@@ -735,6 +735,8 @@ void reportCurSlide()
 
 Emotion emotion = EMO_IDLE;
 unsigned long emotionStart = 0;
+unsigned long emoTransStart = 0;     // start of the change transition (blink + slide)
+#define EMO_TRANS_MS 320             // synchronized transition length (both panels)
 float musicBeat = 0; // 0..1, set from Firebase music data in a later phase
 
 // emotion rotation: the device cycles through these (old "playlist" idea)
@@ -781,7 +783,7 @@ const char *emotionName(Emotion e)
 void setEmotion(const String &name)
 {
   Emotion e = emotionFromName(name);
-  if (e != emotion) { emotion = e; emotionStart = millis(); }
+  if (e != emotion) { emotion = e; emotionStart = millis(); emoTransStart = millis(); }
 }
 
 // Parse the CSV list of emotions the app sends ("idle,happy,sleep") to rotate.
@@ -824,6 +826,33 @@ static void drawEye(float cx, float cy, float w, float h)
   ui.fillRoundRect((int)lroundf(cx - iw / 2.0f), (int)lroundf(cy - ih / 2.0f), iw, ih, r, SSD1306_WHITE);
 }
 
+// 0..1 progress through the current change transition (1 = settled, no transition).
+static float emoTransK(unsigned long t)
+{
+  if (emoTransStart == 0) return 1.0f;
+  unsigned long el = t - emoTransStart;
+  if (el >= EMO_TRANS_MS) return 1.0f;
+  return (float)el / (float)EMO_TRANS_MS;
+}
+
+// Eye openness envelope for the transition: a quick blink (1 -> ~0 -> 1) so the
+// eyes close and reopen as the new emotion, instead of snapping.
+static float emoBlinkEnv(unsigned long t)
+{
+  float k = emoTransK(t);
+  if (k >= 1.0f) return 1.0f;
+  return 0.06f + 0.94f * fabsf(k * 2.0f - 1.0f);
+}
+
+// Dashboard vertical slide for the transition: content drops in from a few px up.
+static int dashSlideY(unsigned long t)
+{
+  float k = emoTransK(t);
+  if (k >= 1.0f) return 0;
+  float ease = 1.0f - (1.0f - k) * (1.0f - k); // easeOut
+  return (int)lroundf((1.0f - ease) * -10.0f);  // -10 -> 0
+}
+
 // LEFT region of the canvas — emotion eyes.
 void drawEyes(unsigned long t)
 {
@@ -858,8 +887,9 @@ void drawEyes(unsigned long t)
     else blinking2 = false;
   }
 
-  drawEye(lcx + lxo, cy + loff, lw, lh * bf);
-  drawEye(rcx + rxo, cy + roff, rw, rh * bf);
+  float env = emoBlinkEnv(t); // blink-morph into the new emotion
+  drawEye(lcx + lxo, cy + loff, lw, lh * bf * env);
+  drawEye(rcx + rxo, cy + roff, rw, rh * bf * env);
 }
 
 // small weather glyph (~18x16) at absolute (x,y) on the canvas
@@ -923,6 +953,7 @@ void drawDashboard(unsigned long t)
   struct tm tm;
   bool have = localNow(tm);
   int16_t x1, y1; uint16_t tw, th;
+  int dy = dashSlideY(t); // synchronized slide-in on emotion change
   ui.setTextColor(SSD1306_WHITE);
 
   if (have)
@@ -932,7 +963,7 @@ void drawDashboard(unsigned long t)
     char d[16];
     snprintf(d, sizeof(d), "%s %s %d", wd[tm.tm_wday], mo[tm.tm_mon], tm.tm_mday);
     ui.setTextSize(1);
-    ui.setCursor(DASH_X + 0, 0);
+    ui.setCursor(DASH_X + 0, 0 + dy);
     ui.print(d);
   }
 
@@ -941,27 +972,27 @@ void drawDashboard(unsigned long t)
     String tdeg = wxTemp + "C";
     int twpx = tdeg.length() * 6;
     ui.setTextSize(1);
-    ui.setCursor(DASH_X + DASH_W - twpx, 0);
+    ui.setCursor(DASH_X + DASH_W - twpx, 0 + dy);
     ui.print(tdeg);
-    if (wxIcon.length()) drawWxIcon(DASH_X + DASH_W - twpx - 20, 0, wxIcon);
+    if (wxIcon.length()) drawWxIcon(DASH_X + DASH_W - twpx - 20, 0 + dy, wxIcon);
   }
 
   String hhmm = have ? widgetTimeText(tm) : String("--:--");
   ui.setTextSize(2);
   ui.getTextBounds(hhmm, 0, 0, &x1, &y1, &tw, &th);
-  ui.setCursor(DASH_X + (DASH_W - tw) / 2, 24);
+  ui.setCursor(DASH_X + (DASH_W - tw) / 2, 24 + dy);
   ui.print(hhmm);
 
   if (musPlaying && musTitle.length())
   {
     String np = musTitle + (musArtist.length() ? " - " + musArtist : "");
-    drawMarquee(np, 54, t);
+    drawMarquee(np, 54 + dy, t);
   }
   else if (wxLoc.length())
   {
     ui.setTextSize(1);
     ui.getTextBounds(wxLoc, 0, 0, &x1, &y1, &tw, &th);
-    ui.setCursor(DASH_X + (DASH_W - tw) / 2, 54);
+    ui.setCursor(DASH_X + (DASH_W - tw) / 2, 54 + dy);
     ui.print(wxLoc);
   }
 }
@@ -999,6 +1030,7 @@ void stepEmotionRotation()
     emoIdx = idx;
     emotion = emoList[idx];
     emotionStart = millis();
+    emoTransStart = millis();
     if (firebaseReady && Firebase.ready())
     {
       String p = String("/") + ROOT_PATH + "/devices/" + DEVICE_ID + "/emotion";

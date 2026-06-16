@@ -2,10 +2,16 @@ import { useEffect, useRef } from "react";
 
 // Live preview of the RIGHT (dashboard) panel — mirrors the firmware:
 // date (top-left), weather icon+temp (top-right), big clock, now-playing/location.
-export function DashboardPreview({ device = {}, settings = {}, className = "" }) {
+export function DashboardPreview({ device = {}, settings = {}, emotion = "idle", className = "" }) {
   const canvasRef = useRef(null);
   const dataRef = useRef({ device, settings });
   dataRef.current = { device, settings };
+
+  // restart the slide-in whenever the emotion changes (synced with the eyes)
+  const transRef = useRef(0);
+  useEffect(() => {
+    transRef.current = performance.now();
+  }, [emotion]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -45,7 +51,12 @@ export function DashboardPreview({ device = {}, settings = {}, className = "" })
 
       const scale = Math.min(W / 128, H / 64) * 0.96;
       const ox = (W - 128 * scale) / 2, oy = (H - 64 * scale) / 2;
-      ctx.save(); ctx.translate(ox, oy); ctx.scale(scale, scale);
+      // slide-in offset (matches firmware dashSlideY: -10 -> 0, easeOut, 320ms)
+      const te = now - transRef.current;
+      let dy = 0;
+      if (te < 320) { const k = te / 320; dy = (1 - (1 - (1 - k) * (1 - k))) * -10; }
+
+      ctx.save(); ctx.translate(ox, oy + dy); ctx.scale(scale, scale);
       ctx.fillStyle = "#22d3ee"; ctx.textBaseline = "top";
 
       const dt = new Date();
