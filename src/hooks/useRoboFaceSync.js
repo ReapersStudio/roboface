@@ -590,6 +590,17 @@ export function useRoboFaceSync() {
     [state.control.currentDeviceId],
   );
 
+  // V2: set the robot's emotion (left-panel eyes) — writes the `emotion` field.
+  const setEmotion = useCallback(
+    (emotion, deviceId = state.control.currentDeviceId) => {
+      if (!deviceId || !emotion) {
+        return;
+      }
+      realtimeStore.updateValue(`devices/${deviceId}`, { emotion, updatedAt: nowStamp() });
+    },
+    [state.control.currentDeviceId],
+  );
+
   const updateSettings = useCallback((patch) => {
     realtimeStore.updateValue("settings", patch);
   }, []);
@@ -629,6 +640,7 @@ export function useRoboFaceSync() {
       setSelectionItems,
       requestDeviceUpdate,
       requestJump,
+      setEmotion,
       updateSettings,
       updateFirebaseSettings,
     },

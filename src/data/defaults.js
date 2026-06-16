@@ -2,8 +2,22 @@ export const REACTION_SCHEMA_VERSION = "processing-showcase-v1";
 
 export const PAGES = [
   { id: "welcome", label: "Welcome" },
-  { id: "reactions", label: "Reactions" },
+  { id: "emotions", label: "Emotions" },
   { id: "settings", label: "Settings" },
+];
+
+// V2 emotions — must match the firmware's emotion engine (the `emotion` field).
+export const EMOTIONS = [
+  { id: "idle", label: "Idle", hint: "Calm breathing" },
+  { id: "happy", label: "Happy", hint: "Bouncy" },
+  { id: "excited", label: "Excited", hint: "Fast bounce" },
+  { id: "love", label: "Love", hint: "Soft pulse" },
+  { id: "listening", label: "Listening", hint: "Eyes widen" },
+  { id: "thinking", label: "Thinking", hint: "Look inward" },
+  { id: "curious", label: "Curious", hint: "Asymmetric" },
+  { id: "sleep", label: "Sleep", hint: "Eyes close" },
+  { id: "wake", label: "Wake", hint: "Open up" },
+  { id: "music", label: "Music", hint: "Beat pulse" },
 ];
 
 export const APP_VERSION = "1.0.0";

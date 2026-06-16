@@ -1520,6 +1520,78 @@ button {
   font-size: 0.76rem;
 }
 
+/* ---------- Emotions page ---------- */
+
+.emotions-page {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.9fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.emotions-preview .robot-canvas {
+  min-height: 300px;
+}
+
+.emotion-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 10px;
+}
+
+.emotion-card {
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 8px;
+  text-align: left;
+  transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
+}
+
+.emotion-card:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-sm);
+}
+
+.emotion-card-active,
+.emotion-card-active:hover {
+  border-color: var(--accent);
+  background: var(--accent-weak);
+}
+
+.emotion-eyes {
+  display: block;
+  height: 56px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.emotion-thumb {
+  min-height: 56px !important;
+  height: 56px !important;
+  border-radius: 8px;
+}
+
+.emotion-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--text);
+  font-size: 0.86rem;
+  font-weight: 750;
+}
+
+.emotion-label svg {
+  color: var(--accent);
+}
+
+.emotion-card small {
+  color: var(--faint);
+  font-size: 0.72rem;
+}
+
 /* ---------- Settings page ---------- */
 
 .update-card {
@@ -1683,7 +1755,8 @@ button {
   .assigned-preview,
   .welcome-layout,
   .reactions-page,
-  .reactions-pro {
+  .reactions-pro,
+  .emotions-page {
     grid-template-columns: 1fr;
   }
 

@@ -14,7 +14,7 @@ import { PAGES } from "../data/defaults.js";
 
 const pageIcons = {
   welcome: Home,
-  reactions: Smile,
+  emotions: Smile,
   settings: Settings,
 };
 
@@ -79,7 +79,7 @@ export function AppShell({
       <main className="app-main">
         <header className="topbar">
           <div>
-            <p className="topbar-kicker">Now playing</p>
+            <p className="topbar-kicker">Robot emotion</p>
             <h1>
               {currentReaction.code != null ? `${currentReaction.code} / ` : ""}
               {currentReaction.name}

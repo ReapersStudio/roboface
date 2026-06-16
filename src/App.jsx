@@ -2,29 +2,25 @@ import { useState } from "react";
 import { AppShell } from "./components/AppShell.jsx";
 import { useRoboFaceSync } from "./hooks/useRoboFaceSync.js";
 import { Welcome } from "./pages/Welcome.jsx";
-import { Reactions } from "./pages/Reactions.jsx";
+import { Emotions } from "./pages/Emotions.jsx";
 import { SettingsPage } from "./pages/Settings.jsx";
+import { EMOTIONS } from "./data/defaults.js";
 
 const pages = {
   welcome: Welcome,
-  reactions: Reactions,
+  emotions: Emotions,
   settings: SettingsPage,
 };
-
-const WIDGET_NAMES = { time: "Time", date: "Date", weather: "Weather", quote: "Quote" };
 
 export default function App() {
   const [activePage, setActivePage] = useState("welcome");
   const state = useRoboFaceSync();
   const Page = pages[activePage] || Welcome;
 
-  // What's playing right now (shared cycler) — keeps the topbar in sync with the preview.
-  const p = state.preview;
-  const live = p?.reaction
-    ? p.reaction
-    : p?.item?.t === "w"
-      ? { code: null, name: `${WIDGET_NAMES[p.item.key] || "Widget"} widget`, mood: "widget", intensity: 100 }
-      : state.currentReaction;
+  // Topbar shows the robot's current emotion (the V2 left-panel state).
+  const emo = state.activeDevice?.emotion || "idle";
+  const emoMeta = EMOTIONS.find((e) => e.id === emo) || EMOTIONS[0];
+  const live = { code: null, name: emoMeta.label, mood: emoMeta.hint, intensity: 100 };
 
   return (
     <AppShell

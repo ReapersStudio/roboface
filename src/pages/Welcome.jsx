@@ -1,18 +1,13 @@
 import { ArrowRight, Smile, Sparkles, Wifi, WifiOff } from "lucide-react";
 import { Button, Panel } from "../components/Controls.jsx";
-import { SlideshowPreview } from "../components/SlideshowPreview.jsx";
-
-const WIDGET_NAMES = { time: "Time", date: "Date", weather: "Weather", quote: "Quote" };
+import { EmotionEyes } from "../components/EmotionEyes.jsx";
+import { EMOTIONS } from "../data/defaults.js";
 
 export function Welcome({ state, onNavigate }) {
   const deviceOnline = Boolean(state.activeDevice?.connected || state.activeDevice?.online);
   const firebaseLive = state.realtimeMode === "firebase" && state.firebaseConnected;
-  const preview = state.preview || {};
-  const playingLabel = preview.reaction
-    ? preview.reaction.name
-    : preview.item?.t === "w"
-      ? `${WIDGET_NAMES[preview.item.key] || "Widget"} widget`
-      : state.currentReaction.name;
+  const emo = state.activeDevice?.emotion || "idle";
+  const emoMeta = EMOTIONS.find((e) => e.id === emo) || EMOTIONS[0];
 
   return (
     <div className="welcome-layout">
@@ -22,13 +17,13 @@ export function Welcome({ state, onNavigate }) {
         </span>
         <h1 className="welcome-title">Bring your robot face to life</h1>
         <p className="welcome-sub">
-          Pick a reaction and it shows on your ESP32 display instantly. Add widgets like time,
-          date, weather and quotes — all from one place.
+          Pick an emotion and it shows on the robot's eyes instantly. The dashboard panel
+          shows time, date, weather and now-playing — all from one place.
         </p>
 
         <div className="welcome-actions">
-          <Button variant="primary" onClick={() => onNavigate("reactions")}>
-            <Smile size={16} /> Browse reactions <ArrowRight size={16} />
+          <Button variant="primary" onClick={() => onNavigate("emotions")}>
+            <Smile size={16} /> Choose emotion <ArrowRight size={16} />
           </Button>
           <Button variant="ghost" onClick={() => onNavigate("settings")}>
             Settings
@@ -50,14 +45,12 @@ export function Welcome({ state, onNavigate }) {
       <Panel className="welcome-preview">
         <div className="canvas-header">
           <div>
-            <h2 className="section-title">Flow preview</h2>
-            <p className="microcopy">
-              {preview.synced ? "In sync with device · " : ""}Now playing: {playingLabel}
-            </p>
+            <h2 className="section-title">{emoMeta.label}</h2>
+            <p className="microcopy">On the robot's eyes · {emoMeta.hint}</p>
           </div>
-          <div className="live-chip">{preview.synced ? "SYNCED" : "PLAYING"}</div>
+          <div className="live-chip">ON DEVICE</div>
         </div>
-        <SlideshowPreview slide={preview.item} reactions={state.reactions} settings={state.settings} />
+        <EmotionEyes emotion={emo} />
       </Panel>
     </div>
   );
