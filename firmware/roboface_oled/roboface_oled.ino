@@ -62,7 +62,7 @@
 // Firmware version of THIS build. The device self-updates over the air when
 // /roboface/firmware/version in Firebase differs from this. Bump it every
 // time you publish a new .bin to your GitHub release.
-#define FW_VERSION "2.2.1"
+#define FW_VERSION "2.3.0"
 
 // OLED — two 128x64 panels, EACH ON ITS OWN I2C BUS (no address jumper needed).
 //   LEFT  (eyes)      : SDA=D21, SCL=D22  (bus 1)  @ 0x3C
@@ -763,16 +763,27 @@ void setEmotion(const String &name)
 // music beat level 0..1 (placeholder gentle pulse until the music feed is wired)
 float beatLevel() { return musicBeat > 0 ? musicBeat : (sinf(millis() / 220.0f) + 1) * 0.5f; }
 
-// one rounded-rect eye; height clamped so blinks stay a thin line, not gone
+// ---- ONE unified 256x64 canvas: draw the whole scene, then split to panels ----
+#define UI_W 256
+#define DASH_X 128 // dashboard occupies the right half (x 128..255)
+#define DASH_W 128
+GFXcanvas1 ui(UI_W, SCREEN_HEIGHT);
+
+// ---- RIGHT-region data (populated from Firebase; all optional) ----
+String wxIcon = "", wxTemp = "", wxLoc = ""; // weather: icon name, "31", "Colombo"
+String musTitle = "", musArtist = "";         // now playing
+bool musPlaying = false;
+
+// one rounded-rect eye on the unified canvas
 static void drawEye(float cx, float cy, float w, float h)
 {
   int iw = (int)lroundf(w);
   int ih = (int)lroundf(max(2.0f, h));
   int r = min(min(EYE_CORNER, iw / 2), ih / 2);
-  display.fillRoundRect((int)lroundf(cx - iw / 2.0f), (int)lroundf(cy - ih / 2.0f), iw, ih, r, SSD1306_WHITE);
+  ui.fillRoundRect((int)lroundf(cx - iw / 2.0f), (int)lroundf(cy - ih / 2.0f), iw, ih, r, SSD1306_WHITE);
 }
 
-// LEFT panel — render the current emotion's animated eyes.
+// LEFT region of the canvas — emotion eyes.
 void drawEyes(unsigned long t)
 {
   const float w = 34, h = 40, gap = 16, cy = 32;
@@ -806,110 +817,100 @@ void drawEyes(unsigned long t)
     else blinking2 = false;
   }
 
-  display.clearDisplay();
   drawEye(lcx + lxo, cy + loff, lw, lh * bf);
   drawEye(rcx + rxo, cy + roff, rw, rh * bf);
-  display.display();
 }
 
-// ---- RIGHT-panel data (populated from Firebase; all optional) ----
-String wxIcon = "", wxTemp = "", wxLoc = "";   // weather: icon name, "31", "Colombo"
-String musTitle = "", musArtist = "";           // now playing
-bool musPlaying = false;
-
-// small weather glyph (~18x16) at top-left (x,y)
+// small weather glyph (~18x16) at absolute (x,y) on the canvas
 void drawWxIcon(int x, int y, const String &w)
 {
   int cx = x + 8, cy = y + 8;
   if (w == "sunny" || w == "sun" || w == "clear")
   {
-    displayR.fillCircle(cx, cy, 4, SSD1306_WHITE);
+    ui.fillCircle(cx, cy, 4, SSD1306_WHITE);
     for (int i = 0; i < 8; i++)
     {
       float a = i * (PI / 4);
-      displayR.drawLine(cx + cos(a) * 6, cy + sin(a) * 6, cx + cos(a) * 8, cy + sin(a) * 8, SSD1306_WHITE);
+      ui.drawLine(cx + cos(a) * 6, cy + sin(a) * 6, cx + cos(a) * 8, cy + sin(a) * 8, SSD1306_WHITE);
     }
   }
   else if (w == "night" || w == "moon")
   {
-    displayR.fillCircle(cx, cy, 6, SSD1306_WHITE);
-    displayR.fillCircle(cx + 3, cy - 2, 6, SSD1306_BLACK); // crescent
+    ui.fillCircle(cx, cy, 6, SSD1306_WHITE);
+    ui.fillCircle(cx + 3, cy - 2, 6, SSD1306_BLACK); // crescent
   }
   else // cloud / rain / storm / cloudy
   {
-    displayR.fillRoundRect(x + 1, y + 6, 16, 6, 3, SSD1306_WHITE);
-    displayR.fillCircle(x + 6, y + 6, 4, SSD1306_WHITE);
-    displayR.fillCircle(x + 11, y + 5, 5, SSD1306_WHITE);
+    ui.fillRoundRect(x + 1, y + 6, 16, 6, 3, SSD1306_WHITE);
+    ui.fillCircle(x + 6, y + 6, 4, SSD1306_WHITE);
+    ui.fillCircle(x + 11, y + 5, 5, SSD1306_WHITE);
     if (w == "rain")
-      for (int i = 0; i < 3; i++) displayR.drawLine(x + 4 + i * 5, y + 13, x + 4 + i * 5, y + 16, SSD1306_WHITE);
+      for (int i = 0; i < 3; i++) ui.drawLine(x + 4 + i * 5, y + 13, x + 4 + i * 5, y + 16, SSD1306_WHITE);
     if (w == "storm")
-    { displayR.drawLine(x + 9, y + 12, x + 6, y + 16, SSD1306_WHITE); displayR.drawLine(x + 6, y + 16, x + 10, y + 14, SSD1306_WHITE); }
+    { ui.drawLine(x + 9, y + 12, x + 6, y + 16, SSD1306_WHITE); ui.drawLine(x + 6, y + 16, x + 10, y + 14, SSD1306_WHITE); }
   }
 }
 
-// horizontally scrolling text (marquee) if it doesn't fit
+// scrolling text within the right region (clipped so it never bleeds into eyes)
 void drawMarquee(const String &s, int y, unsigned long t)
 {
-  displayR.setTextSize(1);
   int textW = s.length() * 6;
-  if (textW <= SCREEN_WIDTH)
+  if (textW <= DASH_W)
   {
-    displayR.setCursor((SCREEN_WIDTH - textW) / 2, y);
-    displayR.print(s);
+    ui.setTextSize(1);
+    ui.setCursor(DASH_X + (DASH_W - textW) / 2, y);
+    ui.print(s);
     return;
   }
-  String loop = s + "   ";
-  int total = loop.length() * 6;
+  String seg = s + "    ";
+  int total = seg.length() * 6;
   int off = (int)((t / 50) % total);
-  displayR.setCursor(-off, y);
-  displayR.print(loop + loop);
+  String two = seg + seg;
+  for (int i = 0; i < (int)two.length(); i++)
+  {
+    int x = DASH_X - off + i * 6;
+    if (x >= DASH_X + DASH_W) break;
+    if (x >= DASH_X) ui.drawChar(x, y, two[i], SSD1306_WHITE, SSD1306_BLACK, 1);
+  }
 }
 
-// RIGHT panel — Phase 2 dashboard: date + weather (top), big clock (center),
-// now-playing or location (bottom). Time/date always show; weather & music
-// appear only when their Firebase fields are present.
+// RIGHT region of the canvas — dashboard: date + weather (top), clock (center),
+// now-playing or location (bottom).
 void drawDashboard(unsigned long t)
 {
-  if (!hasRight) return;
   applyTimezoneIfChanged();
   struct tm tm;
   bool have = localNow(tm);
   int16_t x1, y1; uint16_t tw, th;
+  ui.setTextColor(SSD1306_WHITE);
 
-  displayR.clearDisplay();
-  displayR.setTextColor(SSD1306_WHITE);
-
-  // top-left: date
   if (have)
   {
     static const char *wd[] = {"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
     static const char *mo[] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
     char d[16];
     snprintf(d, sizeof(d), "%s %s %d", wd[tm.tm_wday], mo[tm.tm_mon], tm.tm_mday);
-    displayR.setTextSize(1);
-    displayR.setCursor(0, 0);
-    displayR.print(d);
+    ui.setTextSize(1);
+    ui.setCursor(DASH_X + 0, 0);
+    ui.print(d);
   }
 
-  // top-right: weather icon + temp
   if (wxTemp.length())
   {
     String tdeg = wxTemp + "C";
     int twpx = tdeg.length() * 6;
-    displayR.setTextSize(1);
-    displayR.setCursor(SCREEN_WIDTH - twpx, 0);
-    displayR.print(tdeg);
-    if (wxIcon.length()) drawWxIcon(SCREEN_WIDTH - twpx - 20, 0, wxIcon);
+    ui.setTextSize(1);
+    ui.setCursor(DASH_X + DASH_W - twpx, 0);
+    ui.print(tdeg);
+    if (wxIcon.length()) drawWxIcon(DASH_X + DASH_W - twpx - 20, 0, wxIcon);
   }
 
-  // center: big clock
   String hhmm = have ? widgetTimeText(tm) : String("--:--");
-  displayR.setTextSize(2);
-  displayR.getTextBounds(hhmm, 0, 0, &x1, &y1, &tw, &th);
-  displayR.setCursor((SCREEN_WIDTH - tw) / 2, 24);
-  displayR.print(hhmm);
+  ui.setTextSize(2);
+  ui.getTextBounds(hhmm, 0, 0, &x1, &y1, &tw, &th);
+  ui.setCursor(DASH_X + (DASH_W - tw) / 2, 24);
+  ui.print(hhmm);
 
-  // bottom: now-playing (scrolls) or weather location
   if (musPlaying && musTitle.length())
   {
     String np = musTitle + (musArtist.length() ? " - " + musArtist : "");
@@ -917,23 +918,38 @@ void drawDashboard(unsigned long t)
   }
   else if (wxLoc.length())
   {
-    displayR.setTextSize(1);
-    displayR.getTextBounds(wxLoc, 0, 0, &x1, &y1, &tw, &th);
-    displayR.setCursor((SCREEN_WIDTH - tw) / 2, 54);
-    displayR.print(wxLoc);
+    ui.setTextSize(1);
+    ui.getTextBounds(wxLoc, 0, 0, &x1, &y1, &tw, &th);
+    ui.setCursor(DASH_X + (DASH_W - tw) / 2, 54);
+    ui.print(wxLoc);
   }
-
-  displayR.display();
 }
 
-// Top-level frame: eyes every loop (smooth), dashboard ~2 Hz (clock).
+// Split the one 256x64 canvas onto the two physical panels.
+void blitToPanels()
+{
+  display.clearDisplay();
+  display.drawBitmap(0, 0, ui.getBuffer(), UI_W, SCREEN_HEIGHT, SSD1306_WHITE); // left half (rest clipped)
+  display.display();
+  if (hasRight)
+  {
+    displayR.clearDisplay();
+    displayR.drawBitmap(-DASH_X, 0, ui.getBuffer(), UI_W, SCREEN_HEIGHT, SSD1306_WHITE); // right half
+    displayR.display();
+  }
+}
+
+// Top-level frame: render the whole scene once, then split to both panels.
 void drawFrame()
 {
+  static unsigned long lastFrame = 0;
+  if (millis() - lastFrame < 33) return; // ~30fps (I2C bandwidth limit for 2 panels)
+  lastFrame = millis();
   unsigned long t = millis();
-  drawEyes(t);
-  static unsigned long lastDash = 0;
-  unsigned long dashEvery = musPlaying ? 60 : 500; // fast for smooth marquee
-  if (millis() - lastDash > dashEvery) { lastDash = millis(); drawDashboard(t); }
+  ui.fillScreen(0);
+  drawDashboard(t); // right region
+  drawEyes(t);      // left region
+  blitToPanels();
 }
 
 // Parse the playlist JSON the app sends into our local slides[] array.
@@ -1322,6 +1338,8 @@ void setup()
 
   Wire.begin();             // bus 1: SDA=D21, SCL=D22 (LEFT / eyes)
   Wire1.begin(SDA2, SCL2);  // bus 2: SDA=D33, SCL=D32 (RIGHT / dashboard)
+  Wire.setClock(400000);    // fast I2C for smoother refresh
+  Wire1.setClock(400000);
 
   // Auto-detect each panel's address (0x3C or 0x3D) — no jumper needed.
   uint8_t la = probeOled(Wire);
