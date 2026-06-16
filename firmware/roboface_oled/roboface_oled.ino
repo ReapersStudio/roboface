@@ -62,7 +62,7 @@
 // Firmware version of THIS build. The device self-updates over the air when
 // /roboface/firmware/version in Firebase differs from this. Bump it every
 // time you publish a new .bin to your GitHub release.
-#define FW_VERSION "2.2.0"
+#define FW_VERSION "2.2.1"
 
 // OLED — two 128x64 panels, EACH ON ITS OWN I2C BUS (no address jumper needed).
 //   LEFT  (eyes)      : SDA=D21, SCL=D22  (bus 1)  @ 0x3C
@@ -1304,6 +1304,16 @@ void connectWiFi()
                 WiFi.localIP().toString().c_str(), WiFi.RSSI());
 }
 
+// Probe a bus for an SSD1306 at 0x3C or 0x3D; returns the address (or 0).
+uint8_t probeOled(TwoWire &w)
+{
+  w.beginTransmission(0x3C);
+  if (w.endTransmission() == 0) return 0x3C;
+  w.beginTransmission(0x3D);
+  if (w.endTransmission() == 0) return 0x3D;
+  return 0;
+}
+
 void setup()
 {
   Serial.begin(115200);
@@ -1313,12 +1323,13 @@ void setup()
   Wire.begin();             // bus 1: SDA=D21, SCL=D22 (LEFT / eyes)
   Wire1.begin(SDA2, SCL2);  // bus 2: SDA=D33, SCL=D32 (RIGHT / dashboard)
 
-  if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR))
-    Serial.println("LEFT panel not found on bus1 (D21/D22) - check wiring");
-
-  // Right panel on its own bus — both can keep address 0x3C, no jumper needed.
-  hasRight = displayR.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR_R);
-  Serial.printf("RIGHT panel (bus2 D33/D32): %s\n", hasRight ? "found" : "not found");
+  // Auto-detect each panel's address (0x3C or 0x3D) — no jumper needed.
+  uint8_t la = probeOled(Wire);
+  uint8_t ra = probeOled(Wire1);
+  bool leftOK = la && display.begin(SSD1306_SWITCHCAPVCC, la);
+  hasRight = ra && displayR.begin(SSD1306_SWITCHCAPVCC, ra);
+  Serial.printf("LEFT  bus1 (D21/D22) addr 0x%02X: %s\n", la, leftOK ? "ok" : "NOT FOUND");
+  Serial.printf("RIGHT bus2 (D33/D32) addr 0x%02X: %s\n", ra, hasRight ? "ok" : "NOT FOUND");
 
   display.clearDisplay();
   display.setTextColor(SSD1306_WHITE);
