@@ -62,13 +62,17 @@
 // Firmware version of THIS build. The device self-updates over the air when
 // /roboface/firmware/version in Firebase differs from this. Bump it every
 // time you publish a new .bin to your GitHub release.
-#define FW_VERSION "2.1.0"
+#define FW_VERSION "2.2.0"
 
-// OLED — two 128x64 panels on the same I2C bus.
+// OLED — two 128x64 panels, EACH ON ITS OWN I2C BUS (no address jumper needed).
+//   LEFT  (eyes)      : SDA=D21, SCL=D22  (bus 1)  @ 0x3C
+//   RIGHT (dashboard) : SDA=D33, SCL=D32  (bus 2)  @ 0x3C
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
-#define OLED_ADDR 0x3C   // LEFT  panel = robot eyes / emotions
-#define OLED_ADDR_R 0x3D // RIGHT panel = smart dashboard
+#define OLED_ADDR 0x3C   // both panels keep the default address (separate buses)
+#define OLED_ADDR_R 0x3C
+#define SDA2 33          // RIGHT panel SDA  -> ESP32 D33
+#define SCL2 32          // RIGHT panel SCL  -> ESP32 D32
 
 // Eye size. 1.0 = whole 800x480 design fits (small eyes, lots of margin).
 // Higher = zoomed-in / bigger eyes. ~1.7 fills the panel; try 1.5 - 2.2.
@@ -79,8 +83,8 @@
 #define EYE_RADIUS 16.0f
 // ======================================================
 
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);   // LEFT (eyes)
-Adafruit_SSD1306 displayR(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);  // RIGHT (dashboard)
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);    // LEFT  on bus 1 (Wire)
+Adafruit_SSD1306 displayR(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire1, -1);  // RIGHT on bus 2 (Wire1)
 bool hasRight = false; // set true if the 0x3D panel is detected
 
 // V2 emotion set — declared up top so Arduino's auto-prototypes see the type.
@@ -1306,16 +1310,15 @@ void setup()
   delay(200);
   randomSeed(esp_random());
 
-  Wire.begin(); // SDA=21, SCL=22 on most ESP32 boards
+  Wire.begin();             // bus 1: SDA=D21, SCL=D22 (LEFT / eyes)
+  Wire1.begin(SDA2, SCL2);  // bus 2: SDA=D33, SCL=D32 (RIGHT / dashboard)
+
   if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR))
-  {
-    Serial.println("SSD1306 not found - check wiring / address (0x3C or 0x3D)");
-    for (;;)
-      delay(1000);
-  }
-  // Second panel (right = dashboard). Optional — runs single-panel if absent.
+    Serial.println("LEFT panel not found on bus1 (D21/D22) - check wiring");
+
+  // Right panel on its own bus — both can keep address 0x3C, no jumper needed.
   hasRight = displayR.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR_R);
-  Serial.printf("Right panel (0x3D): %s\n", hasRight ? "found" : "not found");
+  Serial.printf("RIGHT panel (bus2 D33/D32): %s\n", hasRight ? "found" : "not found");
 
   display.clearDisplay();
   display.setTextColor(SSD1306_WHITE);
