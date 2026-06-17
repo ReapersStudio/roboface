@@ -93,6 +93,9 @@ enum Emotion {
   EMO_THINKING, EMO_CURIOUS, EMO_EXCITED, EMO_LOVE, EMO_MUSIC
 };
 
+// RIGHT-panel carousel screens (declared here so auto-generated prototypes see it)
+enum DashScreen { DASH_TIME, DASH_DATE, DASH_WEATHER, DASH_MUSIC };
+
 FirebaseData stream;
 FirebaseData fbdo; // for non-stream reads (OTA version/url)
 FirebaseAuth auth;
@@ -741,7 +744,6 @@ float musicBeat = 0; // 0..1, set from Firebase music data in a later phase
 
 // ---- RIGHT panel carousel: shows ONE thing at a time and slides between them.
 // Its transition is INDEPENDENT of the eyes (a vertical slide, not a blink). ----
-enum DashScreen { DASH_TIME, DASH_DATE, DASH_WEATHER, DASH_MUSIC };
 DashScreen dashScreen = DASH_TIME;
 DashScreen dashPrev = DASH_TIME;
 unsigned long dashTransStart = 0;
