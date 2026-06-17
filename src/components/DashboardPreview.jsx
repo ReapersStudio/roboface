@@ -1,17 +1,20 @@
 import { useEffect, useRef } from "react";
 
-// Live preview of the RIGHT (dashboard) panel — mirrors the firmware:
-// date (top-left), weather icon+temp (top-right), big clock, now-playing/location.
-export function DashboardPreview({ device = {}, settings = {}, emotion = "idle", className = "" }) {
+// Live preview of the RIGHT panel — mirrors the firmware carousel:
+// shows ONE screen at a time (Time -> Date -> Weather), sliding vertically
+// between them. When music is playing it takes over for ~1 min (track + beat
+// bars) synced with the dancing eyes, then drops back to Time/Date, looping.
+const DWELL = 5000, TRANS = 340, MUSIC_DANCE = 60000, MUSIC_INFO = 15000;
+const WD = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
+const MO = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+
+export function DashboardPreview({ device = {}, settings = {}, className = "" }) {
   const canvasRef = useRef(null);
   const dataRef = useRef({ device, settings });
   dataRef.current = { device, settings };
 
-  // restart the slide-in whenever the emotion changes (synced with the eyes)
-  const transRef = useRef(0);
-  useEffect(() => {
-    transRef.current = performance.now();
-  }, [emotion]);
+  const musRef = useRef({ on: false, start: 0 });
+  const trRef = useRef({ cur: "time", prev: "time", start: 0 });
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -49,60 +52,73 @@ export function DashboardPreview({ device = {}, settings = {}, emotion = "idle",
       ctx.clearRect(0, 0, W, H);
       ctx.fillStyle = "#070a12"; ctx.fillRect(0, 0, W, H);
 
-      const scale = Math.min(W / 128, H / 64) * 0.96;
-      const ox = (W - 128 * scale) / 2, oy = (H - 64 * scale) / 2;
-      // slide-in offset (matches firmware dashSlideY: -10 -> 0, easeOut, 320ms)
-      const te = now - transRef.current;
-      let dy = 0;
-      if (te < 320) { const k = te / 320; dy = (1 - (1 - (1 - k) * (1 - k))) * -10; }
-
-      ctx.save(); ctx.translate(ox, oy + dy); ctx.scale(scale, scale);
-      ctx.fillStyle = "#22d3ee"; ctx.textBaseline = "top";
-
-      const dt = new Date();
+      // local time, honoring region + 12/24h
       const fmt12 = s.display?.timeFormat === "12h";
       const region = s.display?.region;
       const tz = region && region !== "auto" ? { timeZone: region } : {};
-      const wd = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
-      const mo = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
-      const local = new Date(dt.toLocaleString("en-US", tz));
+      const local = new Date(new Date().toLocaleString("en-US", tz));
+      const pad = (n) => String(n).padStart(2, "0");
 
-      // date top-left
-      ctx.font = "bold 8px ui-monospace, monospace";
-      ctx.fillText(`${wd[local.getDay()]} ${mo[local.getMonth()]} ${local.getDate()}`, 0, 1);
+      // --- which screen + transition (mirrors firmware stepScene) ---
+      const music = Boolean(d.musPlaying && d.musTitle);
+      if (music && !musRef.current.on) musRef.current = { on: true, start: now };
+      if (!music) musRef.current.on = false;
 
-      // weather top-right
-      if (d.wxTemp != null && String(d.wxTemp).length) {
-        const tdeg = `${d.wxTemp}C`;
-        ctx.font = "bold 8px ui-monospace, monospace";
-        const tw = ctx.measureText(tdeg).width;
-        ctx.fillText(tdeg, 128 - tw, 1);
-        if (d.wxIcon) wxGlyph(128 - tw - 20, 0, d.wxIcon);
+      let screen;
+      if (music) {
+        const ph = (now - musRef.current.start) % (MUSIC_DANCE + MUSIC_INFO);
+        screen = ph < MUSIC_DANCE ? "music" : (ph - MUSIC_DANCE < MUSIC_INFO / 2 ? "time" : "date");
+      } else {
+        screen = ["time", "date", "weather"][Math.floor(now / DWELL) % 3];
       }
+      const tr = trRef.current;
+      if (screen !== tr.cur) { tr.prev = tr.cur; tr.cur = screen; tr.start = now; }
 
-      // big clock
-      const hhmm = local.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: fmt12, ...tz });
-      ctx.font = "bold 22px ui-monospace, monospace";
-      const cw = ctx.measureText(hhmm).width;
-      ctx.fillText(hhmm, (128 - cw) / 2, 22);
+      const scale = Math.min(W / 128, H / 64) * 0.96;
+      const ox = (W - 128 * scale) / 2, oy = (H - 64 * scale) / 2;
+      ctx.save(); ctx.translate(ox, oy); ctx.scale(scale, scale);
+      ctx.fillStyle = "#22d3ee"; ctx.textBaseline = "top";
 
-      // bottom: now-playing (marquee) or location
-      ctx.font = "8px ui-sans-serif, system-ui, sans-serif";
-      if (d.musPlaying && d.musTitle) {
-        const np = d.musTitle + (d.musArtist ? " - " + d.musArtist : "");
-        const npw = ctx.measureText(np).width;
-        if (npw <= 128) ctx.fillText(np, (128 - npw) / 2, 54);
-        else {
-          const total = npw + 30;
-          const off = (now / 50) % total;
-          ctx.save();
-          ctx.beginPath(); ctx.rect(0, 53, 128, 11); ctx.clip();
-          ctx.fillText(np + "      " + np, -off, 54);
-          ctx.restore();
+      const centerX = (txt, y) => { const w = ctx.measureText(txt).width; ctx.fillText(txt, (128 - w) / 2, y); };
+
+      const drawScreen = (which, yoff) => {
+        ctx.save(); ctx.translate(0, yoff);
+        if (which === "time") {
+          let core, ap = "";
+          if (fmt12) { const h = local.getHours() % 12 || 12; core = `${h}:${pad(local.getMinutes())}`; ap = local.getHours() < 12 ? "AM" : "PM"; }
+          else core = `${pad(local.getHours())}:${pad(local.getMinutes())}`;
+          ctx.font = "bold 26px ui-monospace, monospace"; centerX(core, 16);
+          if (ap) { ctx.font = "bold 10px ui-monospace, monospace"; centerX(ap, 46); }
+        } else if (which === "date") {
+          ctx.font = "bold 17px ui-monospace, monospace"; centerX(WD[local.getDay()], 6);
+          centerX(`${MO[local.getMonth()]} ${local.getDate()}`, 30);
+          ctx.font = "10px ui-monospace, monospace"; centerX(String(local.getFullYear()), 54);
+        } else if (which === "weather") {
+          if (d.wxIcon) wxGlyph(64 - 8, 4, d.wxIcon);
+          ctx.font = "bold 24px ui-monospace, monospace"; centerX(d.wxTemp ? `${d.wxTemp}C` : "--", 26);
+          if (d.wxLoc) { ctx.font = "10px ui-sans-serif, system-ui, sans-serif"; centerX(d.wxLoc, 54); }
+        } else if (which === "music") {
+          ctx.font = "10px ui-sans-serif, system-ui, sans-serif";
+          centerX(d.musTitle || "Now Playing", 2);
+          const b = (Math.sin(now / 220) + 1) / 2; // beat (matches firmware placeholder)
+          const bars = 7, bw = 10, gp = 4, totw = bars * bw + (bars - 1) * gp, bx = (128 - totw) / 2, baseY = 46;
+          for (let i = 0; i < bars; i++) {
+            const lvl = b * (0.5 + 0.5 * Math.sin(now / 120 + i * 0.9));
+            const hgt = 4 + lvl * 22;
+            ctx.fillRect(bx + i * (bw + gp), baseY - hgt, bw, hgt);
+          }
+          if (d.musArtist) { ctx.font = "9px ui-sans-serif, system-ui, sans-serif"; centerX(d.musArtist, 54); }
         }
-      } else if (d.wxLoc) {
-        const lw = ctx.measureText(d.wxLoc).width;
-        ctx.fillText(d.wxLoc, (128 - lw) / 2, 54);
+        ctx.restore();
+      };
+
+      const p = tr.start ? (now - tr.start) / TRANS : 1;
+      if (p < 1) {
+        const e = 1 - (1 - p) * (1 - p); // easeOut
+        drawScreen(tr.prev, -e * 64);    // current slides up & out
+        drawScreen(tr.cur, (1 - e) * 64); // next slides in from below
+      } else {
+        drawScreen(tr.cur, 0);
       }
 
       ctx.restore();

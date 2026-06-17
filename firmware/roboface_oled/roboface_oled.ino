@@ -62,7 +62,7 @@
 // Firmware version of THIS build. The device self-updates over the air when
 // /roboface/firmware/version in Firebase differs from this. Bump it every
 // time you publish a new .bin to your GitHub release.
-#define FW_VERSION "2.4.2"
+#define FW_VERSION "2.4.3"
 
 // OLED — two 128x64 panels, EACH ON ITS OWN I2C BUS (no address jumper needed).
 //   LEFT  (eyes)      : SDA=D21, SCL=D22  (bus 1)  @ 0x3C
@@ -735,9 +735,23 @@ void reportCurSlide()
 
 Emotion emotion = EMO_IDLE;
 unsigned long emotionStart = 0;
-unsigned long emoTransStart = 0;     // start of the change transition (blink + slide)
-#define EMO_TRANS_MS 320             // synchronized transition length (both panels)
+unsigned long emoTransStart = 0;     // start of the eye blink-morph transition
+#define EMO_TRANS_MS 320             // LEFT panel: eye blink-morph length
 float musicBeat = 0; // 0..1, set from Firebase music data in a later phase
+
+// ---- RIGHT panel carousel: shows ONE thing at a time and slides between them.
+// Its transition is INDEPENDENT of the eyes (a vertical slide, not a blink). ----
+enum DashScreen { DASH_TIME, DASH_DATE, DASH_WEATHER, DASH_MUSIC };
+DashScreen dashScreen = DASH_TIME;
+DashScreen dashPrev = DASH_TIME;
+unsigned long dashTransStart = 0;
+#define DASH_TRANS_MS 340            // RIGHT panel: vertical slide length
+#define DASH_DWELL 5000UL            // how long each info screen stays before sliding
+// Music takeover: dance + music synced for ~1 min, then time/date, looped while playing.
+#define MUSIC_DANCE_MS 60000UL
+#define MUSIC_INFO_MS 15000UL
+bool musicActive = false;
+unsigned long musicModeStart = 0;
 
 // emotion rotation: the device cycles through these (old "playlist" idea)
 Emotion emoList[16];
@@ -784,6 +798,21 @@ void setEmotion(const String &name)
 {
   Emotion e = emotionFromName(name);
   if (e != emotion) { emotion = e; emotionStart = millis(); emoTransStart = millis(); }
+}
+
+// Change the LEFT emotion (triggers the blink-morph) and report it to the app so
+// the web preview follows. Used by the rotation and the music/scene coordinator.
+void applyEmotion(Emotion e, unsigned long t)
+{
+  if (e == emotion) return;
+  emotion = e;
+  emotionStart = t;
+  emoTransStart = t;
+  if (firebaseReady && Firebase.ready())
+  {
+    String p = String("/") + ROOT_PATH + "/devices/" + DEVICE_ID + "/emotion";
+    Firebase.RTDB.setStringAsync(&fbdo, p.c_str(), emotionName(emotion));
+  }
 }
 
 // Parse the CSV list of emotions the app sends ("idle,happy,sleep") to rotate.
@@ -842,15 +871,6 @@ static float emoBlinkEnv(unsigned long t)
   float k = emoTransK(t);
   if (k >= 1.0f) return 1.0f;
   return 0.06f + 0.94f * fabsf(k * 2.0f - 1.0f);
-}
-
-// Dashboard vertical slide for the transition: content drops in from a few px up.
-static int dashSlideY(unsigned long t)
-{
-  float k = emoTransK(t);
-  if (k >= 1.0f) return 0;
-  float ease = 1.0f - (1.0f - k) * (1.0f - k); // easeOut
-  return (int)lroundf((1.0f - ease) * -10.0f);  // -10 -> 0
 }
 
 // LEFT region of the canvas — emotion eyes.
@@ -945,55 +965,106 @@ void drawMarquee(const String &s, int y, unsigned long t)
   }
 }
 
-// RIGHT region of the canvas — dashboard: date + weather (top), clock (center),
-// now-playing or location (bottom).
+// 0..1 progress through the RIGHT-panel slide (1 = settled).
+static float dashTransK(unsigned long t)
+{
+  if (dashTransStart == 0) return 1.0f;
+  unsigned long el = t - dashTransStart;
+  if (el >= DASH_TRANS_MS) return 1.0f;
+  return (float)el / (float)DASH_TRANS_MS;
+}
+
+// Centered text in the dash region at a given size and y.
+static void dashCenter(const String &s, uint8_t size, int y)
+{
+  ui.setTextSize(size);
+  int16_t x1, y1; uint16_t tw, th;
+  ui.getTextBounds(s, 0, 0, &x1, &y1, &tw, &th);
+  ui.setCursor(DASH_X + (DASH_W - (int)tw) / 2, y);
+  ui.print(s);
+}
+
+// Draw ONE carousel screen, shifted vertically by yoff (for the slide).
+void drawDashScreen(DashScreen s, int yoff, unsigned long t)
+{
+  struct tm tm;
+  bool have = localNow(tm);
+  ui.setTextColor(SSD1306_WHITE);
+
+  static const char *WD[] = {"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
+  static const char *MO[] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+                             "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
+
+  switch (s)
+  {
+    case DASH_TIME:
+    {
+      if (!have) { dashCenter("--:--", 2, 28 + yoff); break; }
+      char core[8]; const char *ap = "";
+      if (g.timeFormat == "12h")
+      {
+        int h = tm.tm_hour % 12; if (h == 0) h = 12;
+        snprintf(core, sizeof(core), "%d:%02d", h, tm.tm_min);
+        ap = tm.tm_hour < 12 ? "AM" : "PM";
+      }
+      else snprintf(core, sizeof(core), "%02d:%02d", tm.tm_hour, tm.tm_min);
+      dashCenter(core, 3, 18 + yoff);             // big clock
+      if (ap[0]) dashCenter(ap, 1, 46 + yoff);    // small AM/PM
+      break;
+    }
+    case DASH_DATE:
+    {
+      if (!have) { dashCenter("--", 2, 24 + yoff); break; }
+      dashCenter(WD[tm.tm_wday], 2, 8 + yoff);
+      char dm[12]; snprintf(dm, sizeof(dm), "%s %d", MO[tm.tm_mon], tm.tm_mday);
+      dashCenter(dm, 2, 32 + yoff);
+      char yr[6]; snprintf(yr, sizeof(yr), "%d", tm.tm_year + 1900);
+      dashCenter(yr, 1, 54 + yoff);
+      break;
+    }
+    case DASH_WEATHER:
+    {
+      if (wxIcon.length()) drawWxIcon(DASH_X + DASH_W / 2 - 8, 4 + yoff, wxIcon);
+      dashCenter(wxTemp.length() ? wxTemp + "C" : String("--"), 3, 26 + yoff);
+      if (wxLoc.length()) dashCenter(wxLoc, 1, 54 + yoff);
+      break;
+    }
+    case DASH_MUSIC:
+    {
+      drawMarquee(musTitle.length() ? musTitle : String("Now Playing"), 2 + yoff, t);
+      // beat-reactive EQ bars (same beatLevel() that drives the dancing eyes)
+      float b = beatLevel();
+      const int bars = 7, bw = 10, gp = 4;
+      int totw = bars * bw + (bars - 1) * gp;
+      int bx = DASH_X + (DASH_W - totw) / 2, baseY = 46 + yoff;
+      for (int i = 0; i < bars; i++)
+      {
+        float lvl = b * (0.5f + 0.5f * sinf(t / 120.0f + i * 0.9f));
+        int hgt = (int)(4 + lvl * 22);
+        ui.fillRect(bx + i * (bw + gp), baseY - hgt, bw, hgt, SSD1306_WHITE);
+      }
+      if (musArtist.length()) drawMarquee(musArtist, 54 + yoff, t);
+      break;
+    }
+  }
+}
+
+// RIGHT region — a single-card carousel that slides vertically between screens.
 void drawDashboard(unsigned long t)
 {
   applyTimezoneIfChanged();
-  struct tm tm;
-  bool have = localNow(tm);
-  int16_t x1, y1; uint16_t tw, th;
-  int dy = dashSlideY(t); // synchronized slide-in on emotion change
-  ui.setTextColor(SSD1306_WHITE);
-
-  if (have)
+  float p = dashTransK(t);
+  if (p < 1.0f)
   {
-    static const char *wd[] = {"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
-    static const char *mo[] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
-    char d[16];
-    snprintf(d, sizeof(d), "%s %s %d", wd[tm.tm_wday], mo[tm.tm_mon], tm.tm_mday);
-    ui.setTextSize(1);
-    ui.setCursor(DASH_X + 0, 0 + dy);
-    ui.print(d);
+    float e = 1.0f - (1.0f - p) * (1.0f - p);     // easeOut
+    int oldOff = (int)lroundf(-e * 64.0f);         // current slides up & out
+    int newOff = (int)lroundf((1.0f - e) * 64.0f); // next slides in from below
+    drawDashScreen(dashPrev, oldOff, t);
+    drawDashScreen(dashScreen, newOff, t);
   }
-
-  if (wxTemp.length())
+  else
   {
-    String tdeg = wxTemp + "C";
-    int twpx = tdeg.length() * 6;
-    ui.setTextSize(1);
-    ui.setCursor(DASH_X + DASH_W - twpx, 0 + dy);
-    ui.print(tdeg);
-    if (wxIcon.length()) drawWxIcon(DASH_X + DASH_W - twpx - 20, 0 + dy, wxIcon);
-  }
-
-  String hhmm = have ? widgetTimeText(tm) : String("--:--");
-  ui.setTextSize(2);
-  ui.getTextBounds(hhmm, 0, 0, &x1, &y1, &tw, &th);
-  ui.setCursor(DASH_X + (DASH_W - tw) / 2, 24 + dy);
-  ui.print(hhmm);
-
-  if (musPlaying && musTitle.length())
-  {
-    String np = musTitle + (musArtist.length() ? " - " + musArtist : "");
-    drawMarquee(np, 54 + dy, t);
-  }
-  else if (wxLoc.length())
-  {
-    ui.setTextSize(1);
-    ui.getTextBounds(wxLoc, 0, 0, &x1, &y1, &tw, &th);
-    ui.setCursor(DASH_X + (DASH_W - tw) / 2, 54 + dy);
-    ui.print(wxLoc);
+    drawDashScreen(dashScreen, 0, t);
   }
 }
 
@@ -1011,9 +1082,9 @@ void blitToPanels()
   }
 }
 
-// Cycle the emotion rotation (if the app set one). Wall-clock based so it's
+// Cycle the LEFT emotion rotation (if the app set one). Wall-clock based so it's
 // steady; reports the current emotion back so the app preview follows.
-void stepEmotionRotation()
+void stepEmotionRotation(unsigned long t)
 {
   if (emoCount == 0) return;
   int idx = 0;
@@ -1023,19 +1094,56 @@ void stepEmotionRotation()
     unsigned long cs = cycleMs / 1000;
     if (cs < 1) cs = 1;
     idx = (ep > 100000) ? (int)((ep / cs) % emoCount)
-                        : (int)((millis() / (cycleMs ? cycleMs : 4000)) % emoCount);
+                        : (int)((t / (cycleMs ? cycleMs : 4000)) % emoCount);
   }
   if (idx != emoIdx)
   {
     emoIdx = idx;
-    emotion = emoList[idx];
-    emotionStart = millis();
-    emoTransStart = millis();
-    if (firebaseReady && Firebase.ready())
+    applyEmotion(emoList[idx], t);
+  }
+}
+
+// Switch the RIGHT carousel to a new screen (starts its vertical slide).
+void setDashScreen(DashScreen s, unsigned long t)
+{
+  if (s == dashScreen) return;
+  dashPrev = dashScreen;
+  dashScreen = s;
+  dashTransStart = t;
+}
+
+// Scene coordinator: drives BOTH panels each frame.
+//  - No music: RIGHT cycles TIME -> DATE -> WEATHER; LEFT runs the emotion rotation.
+//  - Music playing: ~1 min of dancing(LEFT) + music screen(RIGHT) synced, then a
+//    short TIME/DATE stretch, looped while music keeps playing.
+void stepScene(unsigned long t)
+{
+  bool music = musPlaying && musTitle.length();
+  if (music && !musicActive) { musicActive = true; musicModeStart = t; }
+  if (!music) musicActive = false;
+
+  if (music)
+  {
+    unsigned long period = MUSIC_DANCE_MS + MUSIC_INFO_MS;
+    unsigned long ph = (t - musicModeStart) % period;
+    if (ph < MUSIC_DANCE_MS)
     {
-      String p = String("/") + ROOT_PATH + "/devices/" + DEVICE_ID + "/emotion";
-      Firebase.RTDB.setStringAsync(&fbdo, p.c_str(), emotionName(emotion));
+      setDashScreen(DASH_MUSIC, t); // RIGHT: now-playing + beat bars
+      emoIdx = -1;                  // so rotation re-applies cleanly afterwards
+      applyEmotion(EMO_MUSIC, t);   // LEFT: dancing, synced to the same beat
     }
+    else
+    {
+      unsigned long ip = ph - MUSIC_DANCE_MS;
+      setDashScreen(ip < MUSIC_INFO_MS / 2 ? DASH_TIME : DASH_DATE, t);
+      stepEmotionRotation(t);
+    }
+  }
+  else
+  {
+    static const DashScreen seq[] = {DASH_TIME, DASH_DATE, DASH_WEATHER};
+    setDashScreen(seq[(t / DASH_DWELL) % 3], t);
+    stepEmotionRotation(t);
   }
 }
 
@@ -1046,7 +1154,7 @@ void drawFrame()
   if (millis() - lastFrame < 33) return; // ~30fps (I2C bandwidth limit for 2 panels)
   lastFrame = millis();
   unsigned long t = millis();
-  stepEmotionRotation();
+  stepScene(t); // drives both panels (rotation + music sync)
   ui.fillScreen(0);
   drawDashboard(t); // right region
   drawEyes(t);      // left region
