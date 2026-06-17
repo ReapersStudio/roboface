@@ -62,7 +62,7 @@
 // Firmware version of THIS build. The device self-updates over the air when
 // /roboface/firmware/version in Firebase differs from this. Bump it every
 // time you publish a new .bin to your GitHub release.
-#define FW_VERSION "2.4.5"
+#define FW_VERSION "2.4.6"
 
 // OLED — two 128x64 panels, EACH ON ITS OWN I2C BUS (no address jumper needed).
 //   LEFT  (eyes)      : SDA=D21, SCL=D22  (bus 1)  @ 0x3C
@@ -747,7 +747,7 @@ float musicBeat = 0; // 0..1, set from Firebase music data in a later phase
 DashScreen dashScreen = DASH_TIME;
 DashScreen dashPrev = DASH_TIME;
 unsigned long dashTransStart = 0;
-#define DASH_TRANS_MS 340            // RIGHT panel: vertical slide length
+#define DASH_TRANS_MS 460            // RIGHT panel: cross-fade (dissolve) length
 #define DASH_DWELL 5000UL            // how long each info screen stays before sliding
 // Music takeover: dance + music synced for ~1 min, then time/date, looped while playing.
 #define MUSIC_DANCE_MS 60000UL
@@ -1054,19 +1054,42 @@ void drawDashScreen(DashScreen s, int xoff, unsigned long t)
   }
 }
 
-// RIGHT region — a single-card carousel that slides HORIZONTALLY between screens:
-// the current screen pushes out to the left while the next enters from the right.
+// Ordered-dither fade for the dash region: removes a stipple of pixels so the
+// content appears to fade. density 0 = fully gone, 16 = fully visible. This is
+// how you "fade" on a 1-bit panel (no real opacity).
+static void ditherFadeDash(int density)
+{
+  static const uint8_t bayer[4][4] = {
+    { 0,  8,  2, 10},
+    {12,  4, 14,  6},
+    { 3, 11,  1,  9},
+    {15,  7, 13,  5},
+  };
+  if (density >= 16) return; // fully visible
+  for (int y = 0; y < SCREEN_HEIGHT; y++)
+    for (int x = DASH_X; x < UI_W; x++)
+      if (bayer[y & 3][x & 3] >= density)
+        ui.drawPixel(x, y, SSD1306_BLACK);
+}
+
+// RIGHT region — a single-card carousel that FADES between screens (no motion):
+// the current screen dithers out, then the next dithers in.
 void drawDashboard(unsigned long t)
 {
   applyTimezoneIfChanged();
   float p = dashTransK(t);
   if (p < 1.0f)
   {
-    float e = 1.0f - (1.0f - p) * (1.0f - p);      // easeOut
-    int oldOff = (int)lroundf(-e * DASH_W);         // current pushes out left
-    int newOff = (int)lroundf((1.0f - e) * DASH_W); // next enters from the right
-    drawDashScreen(dashPrev, oldOff, t);
-    drawDashScreen(dashScreen, newOff, t);
+    if (p < 0.5f) // first half: old screen fades out
+    {
+      drawDashScreen(dashPrev, 0, t);
+      ditherFadeDash((int)lroundf((1.0f - p * 2.0f) * 16.0f));
+    }
+    else          // second half: new screen fades in
+    {
+      drawDashScreen(dashScreen, 0, t);
+      ditherFadeDash((int)lroundf((p - 0.5f) * 2.0f * 16.0f));
+    }
   }
   else
   {

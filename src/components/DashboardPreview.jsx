@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 // shows ONE screen at a time (Time -> Date -> Weather), sliding vertically
 // between them. When music is playing it takes over for ~1 min (track + beat
 // bars) synced with the dancing eyes, then drops back to Time/Date, looping.
-const DWELL = 5000, TRANS = 340, MUSIC_DANCE = 60000, MUSIC_INFO = 15000;
+const DWELL = 5000, TRANS = 460, MUSIC_DANCE = 60000, MUSIC_INFO = 15000;
 const WD = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
 const MO = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
 
@@ -81,8 +81,8 @@ export function DashboardPreview({ device = {}, settings = {}, className = "" })
 
       const centerX = (txt, y) => { const w = ctx.measureText(txt).width; ctx.fillText(txt, (128 - w) / 2, y); };
 
-      const drawScreen = (which, xoff) => {
-        ctx.save(); ctx.translate(xoff, 0);
+      const drawScreen = (which) => {
+        ctx.save();
         if (which === "time") {
           let core, ap = "";
           if (fmt12) { const h = local.getHours() % 12 || 12; core = `${h}:${pad(local.getMinutes())}`; ap = local.getHours() < 12 ? "AM" : "PM"; }
@@ -114,11 +114,12 @@ export function DashboardPreview({ device = {}, settings = {}, className = "" })
 
       const p = tr.start ? (now - tr.start) / TRANS : 1;
       if (p < 1) {
-        const e = 1 - (1 - p) * (1 - p);   // easeOut
-        drawScreen(tr.prev, -e * 128);     // current pushes out left
-        drawScreen(tr.cur, (1 - e) * 128); // next enters from the right
+        // fade out the old screen, then fade in the new one (no motion)
+        if (p < 0.5) { ctx.globalAlpha = 1 - p * 2; drawScreen(tr.prev); }
+        else { ctx.globalAlpha = (p - 0.5) * 2; drawScreen(tr.cur); }
+        ctx.globalAlpha = 1;
       } else {
-        drawScreen(tr.cur, 0);
+        drawScreen(tr.cur);
       }
 
       ctx.restore();
