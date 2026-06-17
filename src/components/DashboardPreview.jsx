@@ -81,8 +81,8 @@ export function DashboardPreview({ device = {}, settings = {}, className = "" })
 
       const centerX = (txt, y) => { const w = ctx.measureText(txt).width; ctx.fillText(txt, (128 - w) / 2, y); };
 
-      const drawScreen = (which, yoff) => {
-        ctx.save(); ctx.translate(0, yoff);
+      const drawScreen = (which, xoff) => {
+        ctx.save(); ctx.translate(xoff, 0);
         if (which === "time") {
           let core, ap = "";
           if (fmt12) { const h = local.getHours() % 12 || 12; core = `${h}:${pad(local.getMinutes())}`; ap = local.getHours() < 12 ? "AM" : "PM"; }
@@ -114,9 +114,9 @@ export function DashboardPreview({ device = {}, settings = {}, className = "" })
 
       const p = tr.start ? (now - tr.start) / TRANS : 1;
       if (p < 1) {
-        const e = 1 - (1 - p) * (1 - p); // easeOut
-        drawScreen(tr.prev, -e * 64);    // current slides up & out
-        drawScreen(tr.cur, (1 - e) * 64); // next slides in from below
+        const e = 1 - (1 - p) * (1 - p);   // easeOut
+        drawScreen(tr.prev, -e * 128);     // current pushes out left
+        drawScreen(tr.cur, (1 - e) * 128); // next enters from the right
       } else {
         drawScreen(tr.cur, 0);
       }
