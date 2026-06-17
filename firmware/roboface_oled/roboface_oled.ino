@@ -62,7 +62,7 @@
 // Firmware version of THIS build. The device self-updates over the air when
 // /roboface/firmware/version in Firebase differs from this. Bump it every
 // time you publish a new .bin to your GitHub release.
-#define FW_VERSION "2.4.3"
+#define FW_VERSION "2.4.4"
 
 // OLED — two 128x64 panels, EACH ON ITS OWN I2C BUS (no address jumper needed).
 //   LEFT  (eyes)      : SDA=D21, SCL=D22  (bus 1)  @ 0x3C
@@ -1707,6 +1707,48 @@ void loop()
         int ms = fbdo.intData();
         if (ms >= 500) cycleMs = (unsigned long)ms;
       }
+    }
+
+    // --- Self-heal sync ---------------------------------------------------
+    // The realtime stream can silently drop on ESP32 (heap/SSL), which would
+    // freeze the rotation and make "update now" never fire. So we ALSO re-read
+    // the small control fields directly, one per tick (to avoid animation
+    // hitches), so the device recovers on its own within ~30s of any drop and
+    // picks up the rotation list immediately at boot.
+    static unsigned long lastSync = 0;
+    static int syncStep = 0;
+    static String lastEmoCsv = "\x01"; // sentinel so the first read always applies
+    if (lastSync == 0 || millis() - lastSync > 6000UL)
+    {
+      lastSync = millis();
+      String b = String("/") + ROOT_PATH + "/devices/" + DEVICE_ID;
+      switch (syncStep)
+      {
+        case 0:
+          if (Firebase.RTDB.getString(&fbdo, (b + "/emotionList").c_str()))
+          {
+            String v = fbdo.stringData(); v.replace("\"", ""); v.trim();
+            if (v != lastEmoCsv) { lastEmoCsv = v; parseEmotionList(v); }
+          }
+          break;
+        case 1:
+          if (Firebase.RTDB.getBool(&fbdo, (b + "/fwUpdateNow").c_str()) && fbdo.boolData())
+            forceOtaCheck = true;
+          break;
+        case 2:
+          if (Firebase.RTDB.getBool(&fbdo, (b + "/musPlaying").c_str()))
+            musPlaying = fbdo.boolData();
+          break;
+        case 3:
+          if (Firebase.RTDB.getString(&fbdo, (b + "/musTitle").c_str()))
+          { String v = fbdo.stringData(); v.replace("\"", ""); v.trim(); musTitle = v; }
+          break;
+        case 4:
+          if (Firebase.RTDB.getString(&fbdo, (b + "/musArtist").c_str()))
+          { String v = fbdo.stringData(); v.replace("\"", ""); v.trim(); musArtist = v; }
+          break;
+      }
+      syncStep = (syncStep + 1) % 5;
     }
 
     // "Update now" from the app -> check immediately
