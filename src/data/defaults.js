@@ -18,6 +18,13 @@ export const EMOTIONS = [
   { id: "sleep", label: "Sleep", hint: "Eyes close" },
   { id: "wake", label: "Wake", hint: "Open up" },
   { id: "music", label: "Music", hint: "Beat pulse" },
+  { id: "angry", label: "Angry", hint: "Brows down, tremble" },
+  { id: "sad", label: "Sad", hint: "Droopy + a tear" },
+  { id: "surprised", label: "Surprised", hint: "Eyes pop wide" },
+  { id: "wink", label: "Wink", hint: "One eye winks" },
+  { id: "dizzy", label: "Dizzy", hint: "Eyes spin" },
+  { id: "skeptical", label: "Skeptical", hint: "Raised brow" },
+  { id: "laugh", label: "Laugh", hint: "Squint + shake" },
 ];
 
 export const APP_VERSION = "1.0.0";

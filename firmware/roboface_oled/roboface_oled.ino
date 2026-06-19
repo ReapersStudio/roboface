@@ -62,7 +62,7 @@
 // Firmware version of THIS build. The device self-updates over the air when
 // /roboface/firmware/version in Firebase differs from this. Bump it every
 // time you publish a new .bin to your GitHub release.
-#define FW_VERSION "2.5.6"
+#define FW_VERSION "2.5.7"
 
 // OLED — two 128x64 panels, EACH ON ITS OWN I2C BUS (no address jumper needed).
 //   LEFT  (eyes)      : SDA=D21, SCL=D22  (bus 1)  @ 0x3C
@@ -94,7 +94,7 @@ enum Emotion {
   EMO_IDLE, EMO_HAPPY, EMO_SLEEP, EMO_WAKE, EMO_LISTENING,
   EMO_THINKING, EMO_CURIOUS, EMO_EXCITED, EMO_LOVE, EMO_MUSIC,
   EMO_ANGRY, EMO_SAD, EMO_SURPRISED, EMO_WINK, EMO_DIZZY,
-  EMO_SKEPTICAL, EMO_LAUGH, EMO_COOL
+  EMO_SKEPTICAL, EMO_LAUGH
 };
 
 // RIGHT-panel carousel screens (declared here so auto-generated prototypes see it)
@@ -787,7 +787,6 @@ Emotion emotionFromName(const String &s)
   if (s == "dizzy") return EMO_DIZZY;
   if (s == "skeptical") return EMO_SKEPTICAL;
   if (s == "laugh") return EMO_LAUGH;
-  if (s == "cool") return EMO_COOL;
   return EMO_IDLE;
 }
 
@@ -811,7 +810,6 @@ const char *emotionName(Emotion e)
     case EMO_DIZZY: return "dizzy";
     case EMO_SKEPTICAL: return "skeptical";
     case EMO_LAUGH: return "laugh";
-    case EMO_COOL: return "cool";
     default: return "idle";
   }
 }
@@ -824,17 +822,14 @@ void setEmotion(const String &name)
 
 // Change the LEFT emotion (triggers the blink-morph) and report it to the app so
 // the web preview follows. Used by the rotation and the music/scene coordinator.
+bool emoDirty = false; // report current emotion in the heartbeat, not per-change
 void applyEmotion(Emotion e, unsigned long t)
 {
   if (e == emotion) return;
   emotion = e;
   emotionStart = t;
   emoTransStart = t;
-  if (firebaseReady && Firebase.ready())
-  {
-    String p = String("/") + ROOT_PATH + "/devices/" + DEVICE_ID + "/emotion";
-    Firebase.RTDB.setStringAsync(&fbdo, p.c_str(), emotionName(emotion));
-  }
+  emoDirty = true; // heartbeat publishes it — no per-change Firebase write = no stutter
 }
 
 // Parse the CSV list of emotions the app sends ("idle,happy,sleep") to rotate.
@@ -938,24 +933,6 @@ static void drawTear(float cx, float eyeBottomY, unsigned long t)
   ui.fillCircle((int)lroundf(cx), (int)lroundf(eyeBottomY + 2 + p * 18.0f), 2, SSD1306_WHITE);
 }
 
-// Sunglasses for the "cool" reaction: two outlined lenses + bridge + a glint
-// that slides across (the eyes hide behind the shades).
-static void drawShades(float lcx, float rcx, float cy, unsigned long t)
-{
-  const int lw = 30, lh = 22, r = 6;
-  for (int i = 0; i < 2; i++)
-  {
-    int cx = (int)lroundf(i == 0 ? lcx : rcx);
-    int x = cx - lw / 2, y = (int)lroundf(cy) - lh / 2;
-    ui.fillRoundRect(x, y, lw, lh, r, SSD1306_WHITE);
-    ui.fillRoundRect(x + 2, y + 2, lw - 4, lh - 4, r - 1, SSD1306_BLACK);
-    int g = (int)((t / 18) % (lw + 16)) - 8; // glint sweep
-    ui.drawLine(x + g, y + 3, x + g - 7, y + lh - 3, SSD1306_WHITE);
-  }
-  int bx = (int)lroundf(lcx) + lw / 2;
-  ui.fillRect(bx, (int)lroundf(cy) - 2, (int)lroundf(rcx) - lw / 2 - bx, 3, SSD1306_WHITE);
-}
-
 // LEFT region of the canvas — emotion eyes.
 void drawEyes(unsigned long t)
 {
@@ -966,7 +943,7 @@ void drawEyes(unsigned long t)
   float lOpen = 1.0f, rOpen = 1.0f; // per-eye height mult (wink / squint)
   int browMode = 0;                 // 0 none, 1 angry, 2 sad, 3 raised, 4 skeptical
   float browTilt = 0;
-  bool tear = false, shades = false;
+  bool tear = false;
   unsigned long e = t - emotionStart;
 
   switch (emotion)
@@ -989,11 +966,10 @@ void drawEyes(unsigned long t)
     case EMO_DIZZY: { float a = t / 260.0f; lxo = cosf(a) * 5.0f; loff = sinf(a) * 4.0f; rxo = cosf(a + PI) * 5.0f; roff = sinf(a + PI) * 4.0f; lw = rw = w * 0.9f; lh = rh = h * 0.9f; } break;
     case EMO_SKEPTICAL: { lOpen = 0.45f; loff = -3; lxo = rxo = 5; browMode = 4; browTilt = 5; } break;
     case EMO_LAUGH: { loff = roff = -fabsf(sinf(t / 110.0f)) * 9.0f; lh = rh = h * 0.5f; float sh = sinf(t / 70.0f) * 2.0f; lxo = sh; rxo = sh; } break;
-    case EMO_COOL: shades = true; break;
   }
 
   float bf = 1.0f;
-  bool canBlink = (emotion != EMO_SLEEP && emotion != EMO_WAKE && emotion != EMO_WINK && emotion != EMO_COOL);
+  bool canBlink = (emotion != EMO_SLEEP && emotion != EMO_WAKE && emotion != EMO_WINK);
   if (canBlink && t > nextBlink2 && !blinking2) { blinking2 = true; blinkStart2 = t; nextBlink2 = t + (unsigned long)rr(2500, 6000); }
   if (blinking2)
   {
@@ -1012,8 +988,6 @@ void drawEyes(unsigned long t)
     if (el < 420) { float p = el / 420.0f; bounce = 1.0f + sinf(p * 6.2832f) * 0.16f * (1.0f - p); }
   }
   lw *= bounce; rw *= bounce; lh *= bounce; rh *= bounce;
-
-  if (shades) { drawShades(lcx, rcx, cy, t); return; }
 
   // signature cute expressions
   if (emotion == EMO_LOVE) {
@@ -1322,13 +1296,13 @@ void stepPersonality(unsigned long t)
   // context-biased mood pools
   static const Emotion morn[] = { EMO_HAPPY, EMO_EXCITED, EMO_HAPPY, EMO_LOVE, EMO_CURIOUS, EMO_WINK };
   static const Emotion rain[] = { EMO_SAD, EMO_IDLE, EMO_THINKING, EMO_IDLE, EMO_SKEPTICAL };
-  static const Emotion sun[]  = { EMO_HAPPY, EMO_EXCITED, EMO_COOL, EMO_LAUGH, EMO_CURIOUS, EMO_LOVE };
-  static const Emotion day[]  = { EMO_IDLE, EMO_HAPPY, EMO_CURIOUS, EMO_THINKING, EMO_WINK, EMO_SURPRISED, EMO_COOL, EMO_LAUGH };
+  static const Emotion sun[]  = { EMO_HAPPY, EMO_EXCITED, EMO_LAUGH, EMO_CURIOUS, EMO_LOVE };
+  static const Emotion day[]  = { EMO_IDLE, EMO_HAPPY, EMO_CURIOUS, EMO_THINKING, EMO_WINK, EMO_SURPRISED, EMO_LAUGH };
   Emotion next;
   if (morning)    next = pickFrom(morn, 6);
   else if (rainy) next = pickFrom(rain, 5);
-  else if (sunny) next = pickFrom(sun, 6);
-  else            next = pickFrom(day, 8);
+  else if (sunny) next = pickFrom(sun, 5);
+  else            next = pickFrom(day, 7);
 
   applyEmotion(next, t);
   nextMood = t + (unsigned long)rr(2600, 6000);
@@ -1906,6 +1880,7 @@ void loop()
       Firebase.RTDB.setIntAsync(&fbdo, (b + "/slideCount").c_str(), slideCount);
       Firebase.RTDB.setIntAsync(&fbdo, (b + "/uptime").c_str(), (int)(millis() / 1000));
       Firebase.RTDB.setBoolAsync(&fbdo, (b + "/online").c_str(), true);
+      if (emoDirty) { emoDirty = false; Firebase.RTDB.setStringAsync(&fbdo, (b + "/emotion").c_str(), emotionName(emotion)); }
     }
 
     // Auto-fetch weather (on city change, then every 15 min). Blocks briefly.

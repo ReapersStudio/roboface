@@ -53,7 +53,7 @@ export function EmotionEyes({ emotion = "idle", className = "" }) {
       let lcx = 64 - gap / 2 - baseW / 2;
       let rcx = 64 + gap / 2 + baseW / 2;
       let lw = baseW, lh = baseH, rw = baseW, rh = baseH, loff = 0, roff = 0, lxo = 0, rxo = 0;
-      let lOpen = 1, rOpen = 1, browMode = 0, browTilt = 0, tear = false, shades = false;
+      let lOpen = 1, rOpen = 1, browMode = 0, browTilt = 0, tear = false;
 
       switch (emotion) {
         case "happy": loff = roff = -Math.abs(Math.sin(t / 180)) * 6; lh = rh = baseH * 0.8; break;
@@ -73,14 +73,13 @@ export function EmotionEyes({ emotion = "idle", className = "" }) {
         case "dizzy": { const a = t / 260; lxo = Math.cos(a) * 5; loff = Math.sin(a) * 4; rxo = Math.cos(a + Math.PI) * 5; roff = Math.sin(a + Math.PI) * 4; lw = rw = baseW * 0.9; lh = rh = baseH * 0.9; } break;
         case "skeptical": { lOpen = 0.45; loff = -3; lxo = rxo = 5; browMode = 4; browTilt = 5; } break;
         case "laugh": { loff = roff = -Math.abs(Math.sin(t / 110)) * 9; lh = rh = baseH * 0.5; const sh = Math.sin(t / 70) * 2; lxo = sh; rxo = sh; } break;
-        case "cool": shades = true; break;
         default: loff = roff = Math.sin(t / 700) * 2; // idle
       }
 
       // blink (skip when sleeping/waking/winking/cool)
       let bf = 1;
       const bs = blinkRef.current;
-      const canBlink = !["sleep", "wake", "wink", "cool"].includes(emotion);
+      const canBlink = !["sleep", "wake", "wink"].includes(emotion);
       if (canBlink && t > bs.next && !bs.on) { bs.on = true; bs.start = t; bs.next = t + 2500 + Math.random() * 3500; }
       if (bs.on) {
         const be = t - bs.start, d = 140;
@@ -134,26 +133,7 @@ export function EmotionEyes({ emotion = "idle", className = "" }) {
       if (e < 420) { const p = e / 420; bounce = 1 + Math.sin(p * 6.2832) * 0.16 * (1 - p); }
       lw *= bounce; rw *= bounce; lh *= bounce; rh *= bounce;
 
-      if (shades) {
-        const SW = 30, SH = 22;
-        const lens = (cx) => {
-          ctx.fillStyle = "#22d3ee";
-          round(cx - SW / 2, cy - SH / 2, SW, SH, 6);
-          ctx.fillStyle = "#070a12";
-          round(cx - SW / 2 + 2.5, cy - SH / 2 + 2.5, SW - 5, SH - 5, 5);
-        };
-        lens(lcx); lens(rcx);
-        ctx.fillStyle = "#22d3ee";
-        ctx.fillRect(lcx + SW / 2, cy - 2, (rcx - SW / 2) - (lcx + SW / 2), 3);
-        ctx.strokeStyle = "#22d3ee"; ctx.lineWidth = 1.5;
-        [lcx, rcx].forEach((cx) => {
-          const g = ((t / 18) % (SW + 16)) - 8 - SW / 2;
-          ctx.beginPath();
-          ctx.moveTo(cx + g, cy - SH / 2 + 3);
-          ctx.lineTo(cx + g - 7, cy + SH / 2 - 3);
-          ctx.stroke();
-        });
-      } else if (emotion === "love") {
+      if (emotion === "love") {
         const beat = 1 + 0.12 * Math.sin(t / 220);
         heart(lcx + lxo, cy + loff, lw * beat);
         heart(rcx + rxo, cy + roff, rw * beat);
