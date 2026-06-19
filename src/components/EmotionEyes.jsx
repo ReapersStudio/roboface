@@ -103,18 +103,7 @@ export function EmotionEyes({ emotion = "idle", className = "" }) {
       ctx.shadowBlur = 10;
       const eye = (cx, cyy, w, h) => {
         const hh = Math.max(2, h);
-        round(cx - w / 2, cyy - hh / 2, w, hh, Math.min(w, hh) / 2); // fully rounded = cute
-        // cute glossy catchlight sparkles (only on open eyes)
-        if (hh >= 16 && w >= 14) {
-          const x = cx - w / 2, y = cyy - hh / 2;
-          ctx.save();
-          ctx.shadowBlur = 0;
-          ctx.fillStyle = "#070a12";
-          ctx.beginPath(); ctx.arc(x + w / 3, y + hh / 3, Math.max(2, w / 7), 0, 7); ctx.fill();
-          ctx.beginPath(); ctx.arc(x + (w * 2) / 3, y + (hh * 3) / 5, Math.max(1, w / 12), 0, 7); ctx.fill();
-          ctx.restore();
-          ctx.fillStyle = "#22d3ee";
-        }
+        round(cx - w / 2, cyy - hh / 2, w, hh, Math.min(w, hh) / 2); // clean rounded, no sparkles
       };
       const brow = (cx, y, leftEye, tilt, len) => {
         const half = len / 2;

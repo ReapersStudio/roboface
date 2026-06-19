@@ -62,7 +62,7 @@
 // Firmware version of THIS build. The device self-updates over the air when
 // /roboface/firmware/version in Firebase differs from this. Bump it every
 // time you publish a new .bin to your GitHub release.
-#define FW_VERSION "2.5.3"
+#define FW_VERSION "2.5.4"
 
 // OLED — two 128x64 panels, EACH ON ITS OWN I2C BUS (no address jumper needed).
 //   LEFT  (eyes)      : SDA=D21, SCL=D22  (bus 1)  @ 0x3C
@@ -876,13 +876,7 @@ static void drawEye(float cx, float cy, float w, float h)
   int r = min(iw, ih) / 2; // fully rounded = cute pill / round shape
   int x = (int)lroundf(cx - iw / 2.0f);
   int y = (int)lroundf(cy - ih / 2.0f);
-  ui.fillRoundRect(x, y, iw, ih, r, SSD1306_WHITE);
-  // cute glossy catchlights (sparkles) — only on open eyes, not when squinting
-  if (ih >= 16 && iw >= 14)
-  {
-    ui.fillCircle(x + iw / 3, y + ih / 3, max(2, iw / 7), SSD1306_BLACK);          // big sparkle
-    ui.fillCircle(x + (iw * 2) / 3, y + (ih * 3) / 5, max(1, iw / 13), SSD1306_BLACK); // small sparkle
-  }
+  ui.fillRoundRect(x, y, iw, ih, r, SSD1306_WHITE); // solid clean round eye, no sparkles
 }
 
 // 0..1 progress through the current change transition (1 = settled, no transition).
@@ -1338,7 +1332,7 @@ void stepScene(unsigned long t)
 void drawFrame()
 {
   static unsigned long lastFrame = 0;
-  if (millis() - lastFrame < 33) return; // ~30fps (I2C bandwidth limit for 2 panels)
+  if (millis() - lastFrame < 16) return; // ~60fps target (capped by I2C bandwidth)
   lastFrame = millis();
   unsigned long t = millis();
   stepScene(t); // drives both panels (rotation + music sync)
@@ -1800,8 +1794,8 @@ void setup()
 
   Wire.begin();             // bus 1: SDA=D21, SCL=D22 (LEFT / eyes)
   Wire1.begin(SDA2, SCL2);  // bus 2: SDA=D33, SCL=D32 (RIGHT / dashboard)
-  Wire.setClock(400000);    // fast I2C for smoother refresh
-  Wire1.setClock(400000);
+  Wire.setClock(800000);    // fast-mode-plus I2C for smoother (~60fps target) refresh
+  Wire1.setClock(800000);
 
   // Auto-detect each panel's address (0x3C or 0x3D) — no jumper needed.
   uint8_t la = probeOled(Wire);
