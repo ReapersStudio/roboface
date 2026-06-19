@@ -62,7 +62,7 @@
 // Firmware version of THIS build. The device self-updates over the air when
 // /roboface/firmware/version in Firebase differs from this. Bump it every
 // time you publish a new .bin to your GitHub release.
-#define FW_VERSION "2.5.1"
+#define FW_VERSION "2.5.2"
 
 // OLED — two 128x64 panels, EACH ON ITS OWN I2C BUS (no address jumper needed).
 //   LEFT  (eyes)      : SDA=D21, SCL=D22  (bus 1)  @ 0x3C
@@ -1245,26 +1245,47 @@ void triggerReaction(Emotion e, unsigned long ms, unsigned long t)
 // when nothing else is driving it (no music, no app rotation list).
 unsigned long nextMood = 0;
 int awakeStreak = 0;
+unsigned long lastHourReact = 0;
+static Emotion pickFrom(const Emotion *a, int n) { return a[random(0, n)]; }
+// Context-aware autonomous reactions — picks moods based on time of day, weather
+// and the clock so it feels like it's "thinking", not just random (EMO-like AI feel).
 void stepPersonality(unsigned long t)
 {
   if (t < nextMood) return;
-  // weighted pool — leans cheerful/curious, with occasional spice
-  static const Emotion pool[] = {
-    EMO_IDLE, EMO_IDLE, EMO_HAPPY, EMO_HAPPY, EMO_CURIOUS, EMO_CURIOUS,
-    EMO_EXCITED, EMO_LOVE, EMO_SURPRISED, EMO_WINK, EMO_LAUGH,
-    EMO_THINKING, EMO_SKEPTICAL, EMO_COOL,
-  };
-  const int N = sizeof(pool) / sizeof(pool[0]);
+  struct tm tm; bool haveT = localNow(tm);
+  int hour = haveT ? tm.tm_hour : 12;
+  bool night   = (hour >= 22 || hour < 6);
+  bool morning = (hour >= 6 && hour < 11);
+  bool rainy   = (wxIcon == "rain" || wxIcon == "storm");
+  bool sunny   = (wxIcon == "sunny" || wxIcon == "clear" || wxIcon == "sun");
 
-  if (emotion == EMO_SLEEP) { applyEmotion(EMO_WAKE, t); nextMood = t + 1000; awakeStreak = 0; return; }
-  awakeStreak++;
-  // gets sleepy after a while
-  if (awakeStreak > 16 && random(0, 100) < 35) {
-    applyEmotion(EMO_SLEEP, t);
-    nextMood = t + (unsigned long)rr(4000, 9000);
-    return;
+  // wake / stay-asleep (sleeps more at night)
+  if (emotion == EMO_SLEEP) {
+    if (night && random(0, 100) < 70) { nextMood = t + (unsigned long)rr(6000, 12000); return; }
+    applyEmotion(EMO_WAKE, t); nextMood = t + 1000; awakeStreak = 0; return;
   }
-  Emotion next = pool[random(0, N)];
+  awakeStreak++;
+  int sleepAfter = night ? 6 : 16, sleepChance = night ? 70 : 22;
+  if (awakeStreak > sleepAfter && random(0, 100) < sleepChance) {
+    applyEmotion(EMO_SLEEP, t); nextMood = t + (unsigned long)rr(5000, 12000); return;
+  }
+
+  // on-the-hour: a little surprise (once per hour)
+  if (haveT && tm.tm_min == 0 && (t - lastHourReact > 120000UL)) {
+    lastHourReact = t; applyEmotion(EMO_SURPRISED, t); nextMood = t + 1500; return;
+  }
+
+  // context-biased mood pools
+  static const Emotion morn[] = { EMO_HAPPY, EMO_EXCITED, EMO_HAPPY, EMO_LOVE, EMO_CURIOUS, EMO_WINK };
+  static const Emotion rain[] = { EMO_SAD, EMO_IDLE, EMO_THINKING, EMO_IDLE, EMO_SKEPTICAL };
+  static const Emotion sun[]  = { EMO_HAPPY, EMO_EXCITED, EMO_COOL, EMO_LAUGH, EMO_CURIOUS, EMO_LOVE };
+  static const Emotion day[]  = { EMO_IDLE, EMO_HAPPY, EMO_CURIOUS, EMO_THINKING, EMO_WINK, EMO_SURPRISED, EMO_COOL, EMO_LAUGH };
+  Emotion next;
+  if (morning)    next = pickFrom(morn, 6);
+  else if (rainy) next = pickFrom(rain, 5);
+  else if (sunny) next = pickFrom(sun, 6);
+  else            next = pickFrom(day, 8);
+
   applyEmotion(next, t);
   nextMood = t + (unsigned long)rr(2600, 6000);
 }
