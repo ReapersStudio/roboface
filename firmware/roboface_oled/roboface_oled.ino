@@ -62,7 +62,7 @@
 // Firmware version of THIS build. The device self-updates over the air when
 // /roboface/firmware/version in Firebase differs from this. Bump it every
 // time you publish a new .bin to your GitHub release.
-#define FW_VERSION "2.4.6"
+#define FW_VERSION "2.5.1"
 
 // OLED — two 128x64 panels, EACH ON ITS OWN I2C BUS (no address jumper needed).
 //   LEFT  (eyes)      : SDA=D21, SCL=D22  (bus 1)  @ 0x3C
@@ -88,9 +88,13 @@ Adafruit_SSD1306 displayR(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire1, -1);  // RIGHT on
 bool hasRight = false; // set true if the 0x3D panel is detected
 
 // V2 emotion set — declared up top so Arduino's auto-prototypes see the type.
+// EMO-style expressive reactions (living.ai EMO vibe). The first 10 are the
+// originals; the rest were added so the robot has a full emotional range.
 enum Emotion {
   EMO_IDLE, EMO_HAPPY, EMO_SLEEP, EMO_WAKE, EMO_LISTENING,
-  EMO_THINKING, EMO_CURIOUS, EMO_EXCITED, EMO_LOVE, EMO_MUSIC
+  EMO_THINKING, EMO_CURIOUS, EMO_EXCITED, EMO_LOVE, EMO_MUSIC,
+  EMO_ANGRY, EMO_SAD, EMO_SURPRISED, EMO_WINK, EMO_DIZZY,
+  EMO_SKEPTICAL, EMO_LAUGH, EMO_COOL
 };
 
 // RIGHT-panel carousel screens (declared here so auto-generated prototypes see it)
@@ -776,6 +780,14 @@ Emotion emotionFromName(const String &s)
   if (s == "excited") return EMO_EXCITED;
   if (s == "love") return EMO_LOVE;
   if (s == "music") return EMO_MUSIC;
+  if (s == "angry") return EMO_ANGRY;
+  if (s == "sad") return EMO_SAD;
+  if (s == "surprised") return EMO_SURPRISED;
+  if (s == "wink") return EMO_WINK;
+  if (s == "dizzy") return EMO_DIZZY;
+  if (s == "skeptical") return EMO_SKEPTICAL;
+  if (s == "laugh") return EMO_LAUGH;
+  if (s == "cool") return EMO_COOL;
   return EMO_IDLE;
 }
 
@@ -792,6 +804,14 @@ const char *emotionName(Emotion e)
     case EMO_EXCITED: return "excited";
     case EMO_LOVE: return "love";
     case EMO_MUSIC: return "music";
+    case EMO_ANGRY: return "angry";
+    case EMO_SAD: return "sad";
+    case EMO_SURPRISED: return "surprised";
+    case EMO_WINK: return "wink";
+    case EMO_DIZZY: return "dizzy";
+    case EMO_SKEPTICAL: return "skeptical";
+    case EMO_LAUGH: return "laugh";
+    case EMO_COOL: return "cool";
     default: return "idle";
   }
 }
@@ -875,6 +895,44 @@ static float emoBlinkEnv(unsigned long t)
   return 0.06f + 0.94f * fabsf(k * 2.0f - 1.0f);
 }
 
+// A slanted eyebrow above an eye. tilt > 0 drops the INNER end (angry); tilt < 0
+// raises the inner end (sad/worried). 2px thick so it reads on the panel.
+static void drawBrow(float cx, float y, bool leftEye, float tilt, float len)
+{
+  float half = len / 2.0f;
+  int innerX = (int)lroundf(leftEye ? cx + half : cx - half);
+  int outerX = (int)lroundf(leftEye ? cx - half : cx + half);
+  int innerY = (int)lroundf(y + tilt);
+  int outerY = (int)lroundf(y - tilt);
+  ui.drawLine(outerX, outerY, innerX, innerY, SSD1306_WHITE);
+  ui.drawLine(outerX, outerY + 1, innerX, innerY + 1, SSD1306_WHITE);
+}
+
+// A teardrop that wells up under an eye and drips down on a ~1.4s loop.
+static void drawTear(float cx, float eyeBottomY, unsigned long t)
+{
+  float p = (t % 1400) / 1400.0f;
+  ui.fillCircle((int)lroundf(cx), (int)lroundf(eyeBottomY + 2 + p * 18.0f), 2, SSD1306_WHITE);
+}
+
+// Sunglasses for the "cool" reaction: two outlined lenses + bridge + a glint
+// that slides across (the eyes hide behind the shades).
+static void drawShades(float lcx, float rcx, float cy, unsigned long t)
+{
+  const int lw = 30, lh = 22, r = 6;
+  for (int i = 0; i < 2; i++)
+  {
+    int cx = (int)lroundf(i == 0 ? lcx : rcx);
+    int x = cx - lw / 2, y = (int)lroundf(cy) - lh / 2;
+    ui.fillRoundRect(x, y, lw, lh, r, SSD1306_WHITE);
+    ui.fillRoundRect(x + 2, y + 2, lw - 4, lh - 4, r - 1, SSD1306_BLACK);
+    int g = (int)((t / 18) % (lw + 16)) - 8; // glint sweep
+    ui.drawLine(x + g, y + 3, x + g - 7, y + lh - 3, SSD1306_WHITE);
+  }
+  int bx = (int)lroundf(lcx) + lw / 2;
+  ui.fillRect(bx, (int)lroundf(cy) - 2, (int)lroundf(rcx) - lw / 2 - bx, 3, SSD1306_WHITE);
+}
+
 // LEFT region of the canvas — emotion eyes.
 void drawEyes(unsigned long t)
 {
@@ -882,6 +940,10 @@ void drawEyes(unsigned long t)
   float lcx = SCREEN_WIDTH / 2.0f - gap / 2 - w / 2;
   float rcx = SCREEN_WIDTH / 2.0f + gap / 2 + w / 2;
   float lw = w, lh = h, rw = w, rh = h, loff = 0, roff = 0, lxo = 0, rxo = 0;
+  float lOpen = 1.0f, rOpen = 1.0f; // per-eye height mult (wink / squint)
+  int browMode = 0;                 // 0 none, 1 angry, 2 sad, 3 raised, 4 skeptical
+  float browTilt = 0;
+  bool tear = false, shades = false;
   unsigned long e = t - emotionStart;
 
   switch (emotion)
@@ -896,10 +958,19 @@ void drawEyes(unsigned long t)
     case EMO_EXCITED:   loff = roff = -fabsf(sinf(t / 90.0f)) * 8.0f; break;
     case EMO_LOVE: { float p = (sinf(t / 350.0f) + 1) * 0.5f; lw = rw = w * (0.9f + 0.2f * p); lh = rh = h * (0.9f + 0.2f * p); } break;
     case EMO_MUSIC: { float b = beatLevel(); lh = rh = h * (0.85f + 0.4f * b); lw = rw = w * (0.9f + 0.15f * b); } break;
+    // ---- EMO-style additions ----
+    case EMO_ANGRY: { lh = rh = h * 0.6f; loff = roff = 4; float j = sinf(t / 55.0f) * 1.0f; lxo = j; rxo = -j; browMode = 1; browTilt = 7; } break;
+    case EMO_SAD: { lh = rh = h * 0.7f; lw = rw = w * 0.95f; loff = roff = 7 + sinf(t / 900.0f) * 2.0f; browMode = 2; browTilt = 6; tear = ((t / 2200) % 2) == 0; } break;
+    case EMO_SURPRISED: { lw = rw = w * 1.28f; lh = rh = h * 1.3f; loff = roff = -3; browMode = 3; } break;
+    case EMO_WINK: { float ph = fmodf((float)t, 1600.0f); lOpen = (ph < 300.0f) ? 0.08f : 1.0f; loff = roff = -fabsf(sinf(t / 200.0f)) * 3.0f; } break;
+    case EMO_DIZZY: { float a = t / 260.0f; lxo = cosf(a) * 5.0f; loff = sinf(a) * 4.0f; rxo = cosf(a + PI) * 5.0f; roff = sinf(a + PI) * 4.0f; lw = rw = w * 0.9f; lh = rh = h * 0.9f; } break;
+    case EMO_SKEPTICAL: { lOpen = 0.45f; loff = -3; lxo = rxo = 5; browMode = 4; browTilt = 5; } break;
+    case EMO_LAUGH: { loff = roff = -fabsf(sinf(t / 110.0f)) * 9.0f; lh = rh = h * 0.5f; float sh = sinf(t / 70.0f) * 2.0f; lxo = sh; rxo = sh; } break;
+    case EMO_COOL: shades = true; break;
   }
 
   float bf = 1.0f;
-  bool canBlink = (emotion != EMO_SLEEP && emotion != EMO_WAKE);
+  bool canBlink = (emotion != EMO_SLEEP && emotion != EMO_WAKE && emotion != EMO_WINK && emotion != EMO_COOL);
   if (canBlink && t > nextBlink2 && !blinking2) { blinking2 = true; blinkStart2 = t; nextBlink2 = t + (unsigned long)rr(2500, 6000); }
   if (blinking2)
   {
@@ -910,8 +981,23 @@ void drawEyes(unsigned long t)
   }
 
   float env = emoBlinkEnv(t); // blink-morph into the new emotion
-  drawEye(lcx + lxo, cy + loff, lw, lh * bf * env);
-  drawEye(rcx + rxo, cy + roff, rw, rh * bf * env);
+
+  if (shades) { drawShades(lcx, rcx, cy, t); return; }
+
+  drawEye(lcx + lxo, cy + loff, lw, lh * bf * env * lOpen);
+  drawEye(rcx + rxo, cy + roff, rw, rh * bf * env * rOpen);
+
+  // overlays (brows / tears) — based on the steady eye box, not the blink
+  if (browMode)
+  {
+    float byL = cy + loff - lh / 2.0f - (browMode == 3 ? 8.0f : 5.0f);
+    float byR = cy + roff - rh / 2.0f - (browMode == 3 ? 8.0f : 5.0f);
+    if (browMode == 1) { drawBrow(lcx + lxo, byL, true, browTilt, lw); drawBrow(rcx + rxo, byR, false, browTilt, rw); }
+    else if (browMode == 2) { drawBrow(lcx + lxo, byL, true, -browTilt, lw); drawBrow(rcx + rxo, byR, false, -browTilt, rw); }
+    else if (browMode == 3) { drawBrow(lcx + lxo, byL, true, 0, lw); drawBrow(rcx + rxo, byR, false, 0, rw); }
+    else if (browMode == 4) { drawBrow(lcx + lxo, byL - 3, true, -browTilt, lw); drawBrow(rcx + rxo, byR, false, 0, rw); }
+  }
+  if (tear) drawTear(lcx + lxo, cy + loff + lh / 2.0f, t);
 }
 
 // small weather glyph (~18x16) at absolute (x,y) on the canvas
@@ -1145,13 +1231,54 @@ void setDashScreen(DashScreen s, unsigned long t)
 //  - No music: RIGHT cycles TIME -> DATE -> WEATHER; LEFT runs the emotion rotation.
 //  - Music playing: ~1 min of dancing(LEFT) + music screen(RIGHT) synced, then a
 //    short TIME/DATE stretch, looped while music keeps playing.
+// ---- EMO-style personality + reactions -------------------------------------
+// reaction override: a momentary expression (from a touch/sound/face event or
+// the app) that takes priority over the autonomous mood for a short time.
+unsigned long reactionUntil = 0;
+void triggerReaction(Emotion e, unsigned long ms, unsigned long t)
+{
+  applyEmotion(e, t);
+  reactionUntil = t + ms;
+}
+
+// Autonomous "alive" behaviour — the robot expresses moods on its own (like EMO)
+// when nothing else is driving it (no music, no app rotation list).
+unsigned long nextMood = 0;
+int awakeStreak = 0;
+void stepPersonality(unsigned long t)
+{
+  if (t < nextMood) return;
+  // weighted pool — leans cheerful/curious, with occasional spice
+  static const Emotion pool[] = {
+    EMO_IDLE, EMO_IDLE, EMO_HAPPY, EMO_HAPPY, EMO_CURIOUS, EMO_CURIOUS,
+    EMO_EXCITED, EMO_LOVE, EMO_SURPRISED, EMO_WINK, EMO_LAUGH,
+    EMO_THINKING, EMO_SKEPTICAL, EMO_COOL,
+  };
+  const int N = sizeof(pool) / sizeof(pool[0]);
+
+  if (emotion == EMO_SLEEP) { applyEmotion(EMO_WAKE, t); nextMood = t + 1000; awakeStreak = 0; return; }
+  awakeStreak++;
+  // gets sleepy after a while
+  if (awakeStreak > 16 && random(0, 100) < 35) {
+    applyEmotion(EMO_SLEEP, t);
+    nextMood = t + (unsigned long)rr(4000, 9000);
+    return;
+  }
+  Emotion next = pool[random(0, N)];
+  applyEmotion(next, t);
+  nextMood = t + (unsigned long)rr(2600, 6000);
+}
+
 void stepScene(unsigned long t)
 {
   bool music = musPlaying && musTitle.length();
   if (music && !musicActive) { musicActive = true; musicModeStart = t; }
   if (!music) musicActive = false;
 
-  if (music)
+  // a sensor/app reaction overrides everything briefly
+  bool reacting = (t < reactionUntil);
+
+  if (music && !reacting)
   {
     unsigned long period = MUSIC_DANCE_MS + MUSIC_INFO_MS;
     unsigned long ph = (t - musicModeStart) % period;
@@ -1172,7 +1299,9 @@ void stepScene(unsigned long t)
   {
     static const DashScreen seq[] = {DASH_TIME, DASH_DATE, DASH_WEATHER};
     setDashScreen(seq[(t / DASH_DWELL) % 3], t);
-    stepEmotionRotation(t);
+    if (reacting) { /* hold the reaction emotion */ }
+    else if (emoCount > 0) stepEmotionRotation(t); // app-chosen rotation wins
+    else stepPersonality(t);                        // otherwise act alive on its own
   }
 }
 
@@ -1322,6 +1451,8 @@ void applyField(const String &k, const String &v)
     tzOffsetSec = (long)v.toInt() * 60L; // minutes -> seconds
   else if (k == "emotion")
     setEmotion(v); // V2: left panel emotion (idle/happy/sleep/listening/...)
+  else if (k == "reactNow")
+    triggerReaction(emotionFromName(v), 4000, millis()); // momentary EMO reaction (app/sensor)
   else if (k == "emotionList")
     parseEmotionList(v); // V2: rotation list the device cycles through
   else if (k == "wxIcon")
