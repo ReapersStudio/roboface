@@ -62,7 +62,7 @@
 // Firmware version of THIS build. The device self-updates over the air when
 // /roboface/firmware/version in Firebase differs from this. Bump it every
 // time you publish a new .bin to your GitHub release.
-#define FW_VERSION "2.5.5"
+#define FW_VERSION "2.5.6"
 
 // OLED — two 128x64 panels, EACH ON ITS OWN I2C BUS (no address jumper needed).
 //   LEFT  (eyes)      : SDA=D21, SCL=D22  (bus 1)  @ 0x3C
@@ -879,6 +879,27 @@ static void drawEye(float cx, float cy, float w, float h)
   ui.fillRoundRect(x, y, iw, ih, r, SSD1306_WHITE);
 }
 
+// cute happy "^ ^" arc eye (top semicircle band)
+static void drawHappyEye(float cx, float cy, float w, float h)
+{
+  int R = max(6, (int)lroundf(w / 2.0f));
+  int cyi = (int)lroundf(cy + h * 0.22f);
+  int thick = max(4, R / 3);
+  ui.fillCircle((int)lroundf(cx), cyi, R, SSD1306_WHITE);
+  ui.fillCircle((int)lroundf(cx), cyi, R - thick, SSD1306_BLACK);
+  ui.fillRect((int)lroundf(cx) - R - 1, cyi, 2 * R + 2, R + 2, SSD1306_BLACK); // keep top arc
+}
+
+// cute heart eye (two lobes + triangle)
+static void drawHeart(float cx, float cy, float s)
+{
+  int r = max(3, (int)lroundf(s * 0.28f));
+  int x = (int)lroundf(cx), y = (int)lroundf(cy);
+  ui.fillCircle(x - r, y - r / 2, r, SSD1306_WHITE);
+  ui.fillCircle(x + r, y - r / 2, r, SSD1306_WHITE);
+  ui.fillTriangle(x - 2 * r, y - r / 2, x + 2 * r, y - r / 2, x, y + (int)lroundf(s * 0.5f), SSD1306_WHITE);
+}
+
 // 0..1 progress through the current change transition (1 = settled, no transition).
 static float emoTransK(unsigned long t)
 {
@@ -984,7 +1005,28 @@ void drawEyes(unsigned long t)
 
   float env = emoBlinkEnv(t); // blink-morph into the new emotion
 
+  // cute squash-stretch "pop" on every emotion change
+  float bounce = 1.0f;
+  if (emoTransStart) {
+    unsigned long el = t - emoTransStart;
+    if (el < 420) { float p = el / 420.0f; bounce = 1.0f + sinf(p * 6.2832f) * 0.16f * (1.0f - p); }
+  }
+  lw *= bounce; rw *= bounce; lh *= bounce; rh *= bounce;
+
   if (shades) { drawShades(lcx, rcx, cy, t); return; }
+
+  // signature cute expressions
+  if (emotion == EMO_LOVE) {
+    float beat = 1.0f + 0.12f * sinf(t / 220.0f); // heart-beat pulse
+    drawHeart(lcx + lxo, cy + loff, lw * beat);
+    drawHeart(rcx + rxo, cy + roff, rw * beat);
+    return;
+  }
+  if (emotion == EMO_HAPPY || emotion == EMO_LAUGH) {
+    drawHappyEye(lcx + lxo, cy + loff, lw, lh * bf * env);
+    drawHappyEye(rcx + rxo, cy + roff, rw, rh * bf * env);
+    return;
+  }
 
   drawEye(lcx + lxo, cy + loff, lw, lh * bf * env * lOpen);
   drawEye(rcx + rxo, cy + roff, rw, rh * bf * env * rOpen);

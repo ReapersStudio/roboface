@@ -115,6 +115,24 @@ export function EmotionEyes({ emotion = "idle", className = "" }) {
         ctx.lineTo(innerX, y + tilt);
         ctx.stroke();
       };
+      const happyEye = (cx, cyy, w, h) => {
+        const R = Math.max(6, w / 2), cyi = cyy + h * 0.22;
+        ctx.lineWidth = Math.max(4, R / 3);
+        ctx.strokeStyle = "#22d3ee";
+        ctx.beginPath(); ctx.arc(cx, cyi, R, Math.PI, 2 * Math.PI); ctx.stroke();
+      };
+      const heart = (cx, cyy, s) => {
+        const r = Math.max(3, s * 0.28);
+        ctx.beginPath();
+        ctx.arc(cx - r, cyy - r / 2, r, 0, 7); ctx.arc(cx + r, cyy - r / 2, r, 0, 7);
+        ctx.moveTo(cx - 2 * r, cyy - r / 2); ctx.lineTo(cx + 2 * r, cyy - r / 2);
+        ctx.lineTo(cx, cyy + s * 0.5); ctx.closePath(); ctx.fill();
+      };
+
+      // cute squash-stretch pop on emotion change
+      let bounce = 1;
+      if (e < 420) { const p = e / 420; bounce = 1 + Math.sin(p * 6.2832) * 0.16 * (1 - p); }
+      lw *= bounce; rw *= bounce; lh *= bounce; rh *= bounce;
 
       if (shades) {
         const SW = 30, SH = 22;
@@ -135,6 +153,13 @@ export function EmotionEyes({ emotion = "idle", className = "" }) {
           ctx.lineTo(cx + g - 7, cy + SH / 2 - 3);
           ctx.stroke();
         });
+      } else if (emotion === "love") {
+        const beat = 1 + 0.12 * Math.sin(t / 220);
+        heart(lcx + lxo, cy + loff, lw * beat);
+        heart(rcx + rxo, cy + roff, rw * beat);
+      } else if (emotion === "happy" || emotion === "laugh") {
+        happyEye(lcx + lxo, cy + loff, lw, lh * bf);
+        happyEye(rcx + rxo, cy + roff, rw, rh * bf);
       } else {
         eye(lcx + lxo, cy + loff, lw, lh * bf * lOpen);
         eye(rcx + rxo, cy + roff, rw, rh * bf * rOpen);
