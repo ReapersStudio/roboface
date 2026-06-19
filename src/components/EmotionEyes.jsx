@@ -49,7 +49,7 @@ export function EmotionEyes({ emotion = "idle", className = "" }) {
 
       const t = now;
       const e = now - startRef.current;
-      const baseW = 34, baseH = 40, gap = 16, cy = 32;
+      const baseW = 40, baseH = 48, gap = 14, cy = 32; // EMO-style: big, tall, close
       let lcx = 64 - gap / 2 - baseW / 2;
       let rcx = 64 + gap / 2 + baseW / 2;
       let lw = baseW, lh = baseH, rw = baseW, rh = baseH, loff = 0, roff = 0, lxo = 0, rxo = 0;
@@ -103,7 +103,7 @@ export function EmotionEyes({ emotion = "idle", className = "" }) {
       ctx.shadowBlur = 10;
       const eye = (cx, cyy, w, h) => {
         const hh = Math.max(2, h);
-        round(cx - w / 2, cyy - hh / 2, w, hh, Math.min(w, hh) / 2); // clean rounded, no sparkles
+        round(cx - w / 2, cyy - hh / 2, w, hh, Math.min(w, hh) / 3); // EMO rounded rectangle
       };
       const brow = (cx, y, leftEye, tilt, len) => {
         const half = len / 2;

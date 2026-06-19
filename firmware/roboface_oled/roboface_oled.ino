@@ -62,7 +62,7 @@
 // Firmware version of THIS build. The device self-updates over the air when
 // /roboface/firmware/version in Firebase differs from this. Bump it every
 // time you publish a new .bin to your GitHub release.
-#define FW_VERSION "2.5.4"
+#define FW_VERSION "2.5.5"
 
 // OLED — two 128x64 panels, EACH ON ITS OWN I2C BUS (no address jumper needed).
 //   LEFT  (eyes)      : SDA=D21, SCL=D22  (bus 1)  @ 0x3C
@@ -873,10 +873,10 @@ static void drawEye(float cx, float cy, float w, float h)
 {
   int iw = (int)lroundf(w);
   int ih = (int)lroundf(max(2.0f, h));
-  int r = min(iw, ih) / 2; // fully rounded = cute pill / round shape
+  int r = max(4, min(iw, ih) / 3); // EMO-style rounded RECTANGLE (not oval)
   int x = (int)lroundf(cx - iw / 2.0f);
   int y = (int)lroundf(cy - ih / 2.0f);
-  ui.fillRoundRect(x, y, iw, ih, r, SSD1306_WHITE); // solid clean round eye, no sparkles
+  ui.fillRoundRect(x, y, iw, ih, r, SSD1306_WHITE);
 }
 
 // 0..1 progress through the current change transition (1 = settled, no transition).
@@ -938,7 +938,7 @@ static void drawShades(float lcx, float rcx, float cy, unsigned long t)
 // LEFT region of the canvas — emotion eyes.
 void drawEyes(unsigned long t)
 {
-  const float w = 34, h = 40, gap = 16, cy = 32;
+  const float w = 40, h = 48, gap = 14, cy = 32; // EMO-style: big, tall, close together
   float lcx = SCREEN_WIDTH / 2.0f - gap / 2 - w / 2;
   float rcx = SCREEN_WIDTH / 2.0f + gap / 2 + w / 2;
   float lw = w, lh = h, rw = w, rh = h, loff = 0, roff = 0, lxo = 0, rxo = 0;
