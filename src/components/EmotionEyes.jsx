@@ -53,6 +53,7 @@ export function EmotionEyes({ emotion = "idle", className = "" }) {
       let lcx = 64 - gap / 2 - baseW / 2;
       let rcx = 64 + gap / 2 + baseW / 2;
       let lw = baseW, lh = baseH, rw = baseW, rh = baseH, loff = 0, roff = 0, lxo = 0, rxo = 0;
+      let lOpen = 1, rOpen = 1, browMode = 0, browTilt = 0, tear = false, shades = false;
 
       switch (emotion) {
         case "happy": loff = roff = -Math.abs(Math.sin(t / 180)) * 6; lh = rh = baseH * 0.8; break;
@@ -64,13 +65,22 @@ export function EmotionEyes({ emotion = "idle", className = "" }) {
         case "excited": loff = roff = -Math.abs(Math.sin(t / 90)) * 8; break;
         case "love": { const p = (Math.sin(t / 350) + 1) / 2; lw = rw = baseW * (0.9 + 0.2 * p); lh = rh = baseH * (0.9 + 0.2 * p); } break;
         case "music": { const b = (Math.sin(t / 220) + 1) / 2; lh = rh = baseH * (0.85 + 0.4 * b); lw = rw = baseW * (0.9 + 0.15 * b); } break;
+        // ---- EMO-style additions (mirror the firmware drawEyes) ----
+        case "angry": { lh = rh = baseH * 0.6; loff = roff = 4; const j = Math.sin(t / 55) * 1; lxo = j; rxo = -j; browMode = 1; browTilt = 7; } break;
+        case "sad": { lh = rh = baseH * 0.7; lw = rw = baseW * 0.95; loff = roff = 7 + Math.sin(t / 900) * 2; browMode = 2; browTilt = 6; tear = Math.floor(t / 2200) % 2 === 0; } break;
+        case "surprised": { lw = rw = baseW * 1.28; lh = rh = baseH * 1.3; loff = roff = -3; browMode = 3; } break;
+        case "wink": { const ph = t % 1600; lOpen = ph < 300 ? 0.08 : 1; loff = roff = -Math.abs(Math.sin(t / 200)) * 3; } break;
+        case "dizzy": { const a = t / 260; lxo = Math.cos(a) * 5; loff = Math.sin(a) * 4; rxo = Math.cos(a + Math.PI) * 5; roff = Math.sin(a + Math.PI) * 4; lw = rw = baseW * 0.9; lh = rh = baseH * 0.9; } break;
+        case "skeptical": { lOpen = 0.45; loff = -3; lxo = rxo = 5; browMode = 4; browTilt = 5; } break;
+        case "laugh": { loff = roff = -Math.abs(Math.sin(t / 110)) * 9; lh = rh = baseH * 0.5; const sh = Math.sin(t / 70) * 2; lxo = sh; rxo = sh; } break;
+        case "cool": shades = true; break;
         default: loff = roff = Math.sin(t / 700) * 2; // idle
       }
 
-      // blink (skip when sleeping/waking)
+      // blink (skip when sleeping/waking/winking/cool)
       let bf = 1;
       const bs = blinkRef.current;
-      const canBlink = emotion !== "sleep" && emotion !== "wake";
+      const canBlink = !["sleep", "wake", "wink", "cool"].includes(emotion);
       if (canBlink && t > bs.next && !bs.on) { bs.on = true; bs.start = t; bs.next = t + 2500 + Math.random() * 3500; }
       if (bs.on) {
         const be = t - bs.start, d = 140;
@@ -88,14 +98,74 @@ export function EmotionEyes({ emotion = "idle", className = "" }) {
       ctx.translate(ox, oy);
       ctx.scale(scale, scale);
       ctx.fillStyle = "#22d3ee";
+      ctx.strokeStyle = "#22d3ee";
       ctx.shadowColor = "rgba(34,211,238,0.7)";
       ctx.shadowBlur = 10;
       const eye = (cx, cyy, w, h) => {
         const hh = Math.max(2, h);
-        round(cx - w / 2, cyy - hh / 2, w, hh, Math.min(10, w / 2, hh / 2));
+        round(cx - w / 2, cyy - hh / 2, w, hh, Math.min(w, hh) / 2); // fully rounded = cute
+        // cute glossy catchlight sparkles (only on open eyes)
+        if (hh >= 16 && w >= 14) {
+          const x = cx - w / 2, y = cyy - hh / 2;
+          ctx.save();
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = "#070a12";
+          ctx.beginPath(); ctx.arc(x + w / 3, y + hh / 3, Math.max(2, w / 7), 0, 7); ctx.fill();
+          ctx.beginPath(); ctx.arc(x + (w * 2) / 3, y + (hh * 3) / 5, Math.max(1, w / 12), 0, 7); ctx.fill();
+          ctx.restore();
+          ctx.fillStyle = "#22d3ee";
+        }
       };
-      eye(lcx + lxo, cy + loff, lw, lh * bf);
-      eye(rcx + rxo, cy + roff, rw, rh * bf);
+      const brow = (cx, y, leftEye, tilt, len) => {
+        const half = len / 2;
+        const innerX = leftEye ? cx + half : cx - half;
+        const outerX = leftEye ? cx - half : cx + half;
+        ctx.lineWidth = 2.4;
+        ctx.beginPath();
+        ctx.moveTo(outerX, y - tilt);
+        ctx.lineTo(innerX, y + tilt);
+        ctx.stroke();
+      };
+
+      if (shades) {
+        const SW = 30, SH = 22;
+        const lens = (cx) => {
+          ctx.fillStyle = "#22d3ee";
+          round(cx - SW / 2, cy - SH / 2, SW, SH, 6);
+          ctx.fillStyle = "#070a12";
+          round(cx - SW / 2 + 2.5, cy - SH / 2 + 2.5, SW - 5, SH - 5, 5);
+        };
+        lens(lcx); lens(rcx);
+        ctx.fillStyle = "#22d3ee";
+        ctx.fillRect(lcx + SW / 2, cy - 2, (rcx - SW / 2) - (lcx + SW / 2), 3);
+        ctx.strokeStyle = "#22d3ee"; ctx.lineWidth = 1.5;
+        [lcx, rcx].forEach((cx) => {
+          const g = ((t / 18) % (SW + 16)) - 8 - SW / 2;
+          ctx.beginPath();
+          ctx.moveTo(cx + g, cy - SH / 2 + 3);
+          ctx.lineTo(cx + g - 7, cy + SH / 2 - 3);
+          ctx.stroke();
+        });
+      } else {
+        eye(lcx + lxo, cy + loff, lw, lh * bf * lOpen);
+        eye(rcx + rxo, cy + roff, rw, rh * bf * rOpen);
+
+        if (browMode) {
+          const raise = browMode === 3 ? 8 : 5;
+          const byL = cy + loff - lh / 2 - raise;
+          const byR = cy + roff - rh / 2 - raise;
+          if (browMode === 1) { brow(lcx + lxo, byL, true, browTilt, lw); brow(rcx + rxo, byR, false, browTilt, rw); }
+          else if (browMode === 2) { brow(lcx + lxo, byL, true, -browTilt, lw); brow(rcx + rxo, byR, false, -browTilt, rw); }
+          else if (browMode === 3) { brow(lcx + lxo, byL, true, 0, lw); brow(rcx + rxo, byR, false, 0, rw); }
+          else if (browMode === 4) { brow(lcx + lxo, byL - 3, true, -browTilt, lw); brow(rcx + rxo, byR, false, 0, rw); }
+        }
+        if (tear) {
+          const p = (t % 1400) / 1400;
+          ctx.beginPath();
+          ctx.arc(lcx + lxo, cy + loff + lh / 2 + 2 + p * 18, 2.2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
       ctx.restore();
 
       raf = requestAnimationFrame(render);

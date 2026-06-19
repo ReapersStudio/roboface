@@ -62,7 +62,7 @@
 // Firmware version of THIS build. The device self-updates over the air when
 // /roboface/firmware/version in Firebase differs from this. Bump it every
 // time you publish a new .bin to your GitHub release.
-#define FW_VERSION "2.5.2"
+#define FW_VERSION "2.5.3"
 
 // OLED — two 128x64 panels, EACH ON ITS OWN I2C BUS (no address jumper needed).
 //   LEFT  (eyes)      : SDA=D21, SCL=D22  (bus 1)  @ 0x3C
@@ -873,8 +873,16 @@ static void drawEye(float cx, float cy, float w, float h)
 {
   int iw = (int)lroundf(w);
   int ih = (int)lroundf(max(2.0f, h));
-  int r = min(min(EYE_CORNER, iw / 2), ih / 2);
-  ui.fillRoundRect((int)lroundf(cx - iw / 2.0f), (int)lroundf(cy - ih / 2.0f), iw, ih, r, SSD1306_WHITE);
+  int r = min(iw, ih) / 2; // fully rounded = cute pill / round shape
+  int x = (int)lroundf(cx - iw / 2.0f);
+  int y = (int)lroundf(cy - ih / 2.0f);
+  ui.fillRoundRect(x, y, iw, ih, r, SSD1306_WHITE);
+  // cute glossy catchlights (sparkles) — only on open eyes, not when squinting
+  if (ih >= 16 && iw >= 14)
+  {
+    ui.fillCircle(x + iw / 3, y + ih / 3, max(2, iw / 7), SSD1306_BLACK);          // big sparkle
+    ui.fillCircle(x + (iw * 2) / 3, y + (ih * 3) / 5, max(1, iw / 13), SSD1306_BLACK); // small sparkle
+  }
 }
 
 // 0..1 progress through the current change transition (1 = settled, no transition).
